@@ -3,7 +3,7 @@ use crate::getifaddr::{addr_is_reserved, getifaddr};
 use crate::options::{Options, RtOptions};
 use crate::upnpglobalvars::*;
 use crate::upnppermissions::check_upnp_rule_against_permissions;
-use crate::upnpredirect::_upnp_delete_redir;
+use crate::upnpredirect::{_upnp_delete_redir, proto_itoa, upnp_redirect_internal};
 use crate::upnputils::upnp_time;
 use crate::warp::recv_from_if;
 use crate::{Backend, TCP, UDP, error, info, warn};
@@ -122,9 +122,9 @@ pub fn ProcessIncomingNATPMPPacket(
 			1 | 2 => {
 				let iport = u16::from_be_bytes([req[4], req[5]]);
 				let eport = u16::from_be_bytes([req[6], req[7]]);
-				let lifetime = u32::from_be_bytes(req[8..12].try_into().unwrap());
+				let lifetime = u32::from_be_bytes([req[8], req[9], req[10], req[11]]);
 				let proto = if req[1] == 1 { UDP } else { TCP };
-				let proto_str = if req[1] == 1 { "udp" } else { "tcp" };
+				let proto_str = proto_itoa(proto);
 				info!(
 					"NAT-PMP port mapping request : {}=>{}:{} {} lifetime={}",
 					eport,
@@ -135,10 +135,10 @@ pub fn ProcessIncomingNATPMPPacket(
 				);
 				if lifetime == 0 {
 					while let Some(entry) = rt.nat_impl.get_redirect_rule(|x| {
-						x.saddr.octets() == senderaddr.ip().octets()
+						x.daddr.as_octets() == senderaddr.ip().as_octets()
 							&& x.desc.as_ref().map(|x| x.as_str()).unwrap_or_default().starts_with("NAT-PMP")
 					}) {
-						if entry.sport == 0 || ((iport == entry.sport) && (proto == entry.proto)) {
+						if entry.dport == 0 || ((iport == entry.dport) && (proto == entry.proto)) {
 							let r = _upnp_delete_redir(rt, eport, proto);
 							if r < 0 {
 								error!("Failed to remove NAT-PMP mapping eport {}, protocol {}", eport, proto);
@@ -192,11 +192,11 @@ pub fn ProcessIncomingNATPMPPacket(
 							continue;
 						}
 						any_eport_allowed = true;
-						if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.dport == eport && x.proto == proto) {
-							if entry.saddr.octets() == senderaddr.ip().octets() && iport == entry.sport {
+						if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.sport == eport && x.proto == proto) {
+							if entry.daddr.octets() == senderaddr.ip().octets() && iport == entry.dport {
 								info!(
 									"port {} {} already redirected to {}:{}, replacing",
-									eport, proto_str, entry.saddr, entry.sport
+									eport, proto_str, entry.daddr, entry.dport
 								);
 								if _upnp_delete_redir(rt, eport, proto) < 0 {
 									error!("failed to remove port mapping");
@@ -212,7 +212,14 @@ pub fn ProcessIncomingNATPMPPacket(
 						}
 
 						// do the redirection
-						// let timestamp = upnp_time().as_secs() + lifetime as u64;
+						let timestamp = upnp_time().as_secs() + lifetime as u64;
+						let desc = format!("NAT-PMP {} {}", eport, proto_str);
+						if upnp_redirect_internal(rt, None, *senderaddr.ip(), eport, iport, proto, 
+						                       Some(desc.as_str()), timestamp as _) < 0 {
+							error!("Failed to add NAT-PMP {} {}->{}:{} '{}'", eport, proto_str, senderaddr.ip(), iport, desc);
+							resp[3] = 3;
+						}
+						break;
 					}
 				}
 				resp[8..10].copy_from_slice(iport.to_be_bytes().as_ref());

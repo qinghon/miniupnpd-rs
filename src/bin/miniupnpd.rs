@@ -1186,7 +1186,10 @@ fn main() {
 				}
 				let mut msg_buff: [u8; 1100] = [0; 1100];
 
-				if let Ok(_) = ReceiveNATPMPOrPCPPacket(snatpmps, &mut senderaddr, None, &mut msg_buff) {
+				if let Ok(n) = ReceiveNATPMPOrPCPPacket(snatpmps, &mut senderaddr, None, &mut msg_buff) {
+					if n == 0 {
+						continue;
+					}
 					#[cfg(feature = "pcp")]
 					if msg_buff[0] == 0 {
 						let lan_addr = get_lan_for_peer(op, &senderaddr);
@@ -1196,7 +1199,7 @@ fn main() {
 							ProcessIncomingNATPMPPacket(op, rt, &mut send_list, snatpmps, &msg_buff, sockaddr_to_v4(senderaddr));
 						}
 					} else {
-						ProcessIncomingPCPPacket(rt, snatpmps, &mut msg_buff, &senderaddr, None);
+						ProcessIncomingPCPPacket(rt, snatpmps, &mut msg_buff[..n], &senderaddr, None);
 					}
 					#[cfg(not(feature = "pcp"))]
 					{
@@ -1205,7 +1208,7 @@ fn main() {
 							warn!("NAT-PMP packet sender {} not from a LAN, ignoring", senderaddr);
 							continue;
 						}
-						ProcessIncomingNATPMPPacket(op, rt, &mut send_list, snatpmps, &msg_buff, sockaddr_to_v4(senderaddr));
+						ProcessIncomingNATPMPPacket(op, rt, &mut send_list, snatpmps, &msg_buff[..n], sockaddr_to_v4(senderaddr));
 					}
 				}
 			}

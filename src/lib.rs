@@ -5,6 +5,7 @@
 #![feature(str_as_str)]
 #![feature(ip_as_octets)]
 #![feature(maybe_uninit_slice)]
+#![feature(let_chains)]
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
 
 use std::net::{Ipv4Addr, Ipv6Addr};

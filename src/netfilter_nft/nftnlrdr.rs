@@ -409,7 +409,7 @@ impl Backend for nftable {
 				.filter_rule
 				.iter()
 				.find(|r| r.dport == iport && r.daddr == iaddr && r.proto == proto && r.type_0 == RULE_FILTER);
-			if let Some(r) = rule_del_handle(rule.unwrap(), self.nft_nat_family) {
+			if rule.is_some() && let Some(r) = rule_del_handle(rule.unwrap(), self.nft_nat_family) {
 				let _ = rule;
 				self.nft_send_rule(r, NFT_MSG_DELRULE, RULE_CHAIN_FILTER);
 			}
