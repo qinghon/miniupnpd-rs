@@ -1,0 +1,93 @@
+
+cargo-features = ["profile-rustflags"]
+
+[package]
+name = "miniupnpd-rs"
+version = "2.3.7"
+edition = "2024"
+homepage = "https://miniupnp.tuxfamily.org/"
+repository = "https://github.com/miniupnp/miniupnp"
+description = " UPnP IGD implementation"
+keywords = [ "networking",
+    "pcp",
+    "upnp",
+    "nat-pmp",
+    "internet-gateway",
+]
+license-file = "LICENSE"
+
+
+[dependencies]
+ipnet = "2.11"
+libc = "0.2"
+once_cell = "1.21"
+socket2 = { version = "0.5.8", features = ["all"] }
+
+
+[features]
+default = ["igd2", "events", "ipv6", "strict"]
+pcp = []
+pcp_peer = ["pcp"]
+igd2 = []
+https = ["igd2"]
+ipv6 = []
+strict = []
+portinuse = []
+
+multiple_ext_ip = []
+nfqueue = []
+#ifacewatcher = []
+re = []
+_dp_service = []
+events = []
+randomurl= []
+pcp_sadscp = ["pcp"]
+pcp_flowp = ["pcp"]
+
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(fw, values("pf"))',
+    'cfg(fw, values("iptables"))',
+    'cfg(fw, values("nftables"))',
+    'cfg(fw, values("ipfw"))',
+    'cfg(fw, values("ipf"))',
+    'cfg(cap_lib, values("cap_ng"))',
+    'cfg(cap_lib, values("cap"))',
+    'cfg(cap_lib, values("pledge"))',
+    'cfg(cap_lib, values("none"))',
+    'cfg(use_getifaddrs, values("0"))',
+    'cfg(use_getifaddrs, values("1"))',
+    'cfg(uuid, values("native"))',
+    'cfg(uuid, values("libuuid"))'
+] }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+overflow-checks = false
+panic = "abort"
+debug-assertions = false
+debug = false
+opt-level = "z"
+rustflags = [
+    "-Zlocation-detail=none",
+    "-Zfmt-debug=none",
+    "-Clink-arg=-Wl,--build-id=none",
+    "-Clink-arg=-Wl,-z,now",
+    "-Clink-arg=-Wl,-z,relro",
+    "-Clink-arg=-pie",
+
+]
+[profile.dev]
+overflow-checks = false
+
+[build-dependencies]
+pkg-config = {version = "0"}
+[build-dependencies.bindgen]
+version = "0.71"
+git = "https://github.com/rust-lang/rust-bindgen.git"
+branch = "main"
+
+[patch.crates-io]
+clang-sys = {git = "https://github.com/KyleMayes/clang-sys.git", tag = "v1.9.0"}
