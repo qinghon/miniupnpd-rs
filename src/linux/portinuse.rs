@@ -1,12 +1,15 @@
 use crate::getifaddr::getifaddr;
 use crate::{Backend, IfName, TCP, nat_impl};
-use std::ffi::CStr;
-use std::net::Ipv4Addr;
 
+use std::ffi::CStr;
 const tcpfile: &CStr = c"/proc/net/tcp";
 const udpfile: &CStr = c"/proc/net/udp";
+use std::net::Ipv4Addr;
 
-fn port_in_use(nat: &nat_impl, if_name: &IfName, eport: u16, proto: u8, iaddr: &Ipv4Addr, iport: u16) -> i32 {
+
+
+pub(super) fn port_in_use(nat: &nat_impl, if_name: &IfName, eport: u16, proto: u8, iaddr: &Ipv4Addr, iport: u16) -> i32 {
+	
 	let mut ip_addr = Ipv4Addr::UNSPECIFIED;
 
 	getifaddr(if_name, &mut ip_addr, None);

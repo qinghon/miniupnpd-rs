@@ -68,6 +68,7 @@ pub mod solaris {
 }
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub mod linux {
+	#[cfg(feature = "portinuse")]
 	mod portinuse;
 	mod getifstats;
 	pub mod getroute;

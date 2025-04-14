@@ -5,6 +5,8 @@ use crate::*;
 use std::net::Ipv4Addr;
 use std::os::fd::RawFd;
 use std::time::Duration;
+#[cfg(feature = "portinuse")]
+use super::portinuse::port_in_use;
 
 pub struct linux;
 
@@ -60,7 +62,7 @@ impl OS for linux {
 		iaddr: &Ipv4Addr,
 		iport: u16,
 	) -> i32 {
-		todo!()
+		port_in_use(nat, if_name, eport, proto, iaddr, iport)
 	}
 }
 

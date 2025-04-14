@@ -70,6 +70,7 @@ panic = "abort"
 debug-assertions = false
 debug = false
 opt-level = "z"
+strip=true
 rustflags = [
     "-Zlocation-detail=none",
     "-Zfmt-debug=none",
