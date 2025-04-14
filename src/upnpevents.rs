@@ -3,7 +3,7 @@ use crate::warp::FdSet;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
 use std::mem::MaybeUninit;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::os::fd::AsRawFd;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -45,9 +45,9 @@ pub struct upnp_event_notify {
 	pub tosend: i32,
 	pub sent: i32,
 	pub path: Option<String>,
-	pub ipv6: i32,
-	pub addrstr: IpAddr,
-	pub portstr: u16,
+	// pub ipv6: i32,
+	pub addrstr: SocketAddr,
+	// pub portstr: u16,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -183,9 +183,7 @@ fn upnp_event_create_notify(sub: &mut Rc<RefCell<subscriber>>) {
 		tosend: 0,
 		sent: 0,
 		path: None,
-		ipv6: 0,
-		addrstr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-		portstr: 0,
+		addrstr: SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0).into(),
 	});
 }
 
@@ -197,82 +195,55 @@ fn upnp_event_notify_connect(obj: &mut upnp_event_notify) {
 		return;
 	}
 
-	// 跳过"http://"
-	let mut p = &callback[7..];
-
-	// 解析地址和端口
-	let (addr_str, port, path) = if cfg!(feature = "ipv6") && p.starts_with('[') {
-		// IPv6 地址处理
-		obj.ipv6 = 1;
-		if let Some(end_bracket) = p.find(']') {
-			let addr = &p[1..end_bracket];
-			p = &p[end_bracket + 1..];
-
-			let (port, path) = if p.starts_with(':') {
-				let p = &p[1..];
-				if let Some(slash_pos) = p.find('/') {
-					let port = p[..slash_pos].parse::<u16>().unwrap_or(80);
-					(port, &p[slash_pos..])
-				} else {
-					(80, "/")
-				}
-			} else {
-				(80, if p.starts_with('/') { p } else { "/" })
-			};
-
-			(format!("[{}]", addr), port, path)
-		} else {
-			obj.state = EError;
-			return;
-		}
-	} else {
-		// IPv4 地址处理
-		let addr_end = p.find(|c| c == ':' || c == '/').unwrap_or(p.len());
-		let addr = &p[..addr_end];
-		p = &p[addr_end..];
-
-		let (port, path) = if p.starts_with(':') {
-			let p = &p[1..];
-			if let Some(slash_pos) = p.find('/') {
-				let port = p[..slash_pos].parse::<u16>().unwrap_or(80);
-				(port, &p[slash_pos..])
-			} else {
-				(80, "/")
+	// skip "http://"
+	let p = &callback[7..];
+	
+	let parse_host = |host:&str| -> Option<SocketAddr> {
+		let port = 80;
+		let ipv6 = host.starts_with('[');
+		
+		if (ipv6 && host.ends_with(']')) || (
+			! ipv6 && host.rfind(':').is_none()
+			) {
+			if let Ok(addr) = IpAddr::from_str(host) {
+				Some(SocketAddr::new(addr, port))
+			}else {
+				None
 			}
-		} else {
-			(80, if p.starts_with('/') { p } else { "/" })
-		};
-
-		(addr.to_string(), port, path)
+		}else if let Ok(addr) = SocketAddr::from_str(host) {
+  				return Some(addr);
+  			}else {
+  				return None;
+  			}
+	};
+	
+	let (socket, path) = p.split_once('/').map(
+		|(host, path)| (parse_host(host), Some(path)), 
+	).unwrap_or_else(
+		||(parse_host(p), None),
+	);
+	if socket.is_none() {
+		obj.state = EError;
+		return;
+	}
+	let sock = socket.unwrap();
+	
+	obj.addrstr = sock;
+	obj.path = if let Some(p) = path {
+		Some(p.to_string())
+	}else { 
+		None
 	};
 
-	// 设置地址和端口信息
-	obj.addrstr = if obj.ipv6 == 1 {
-		let addr_str = addr_str.trim_start_matches('[').trim_end_matches(']');
-		IpAddr::from_str(addr_str).unwrap_or(IpAddr::V6(Ipv6Addr::UNSPECIFIED))
-	} else {
-		IpAddr::from_str(&addr_str).unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
-	};
-	obj.portstr = port;
-	obj.path = Some(path.to_string());
-
-	// 创建socket地址
-	let sock_addr = match obj.addrstr {
-		IpAddr::V6(addr) => SocketAddr::new(IpAddr::V6(addr), port),
-		IpAddr::V4(addr) => SocketAddr::new(IpAddr::V4(addr), port),
-	};
-
-	debug!("upnp_event_notify_connect: '{}' {} '{}'", addr_str, port, path);
-
-	// 开始连接
+	debug!("upnp_event_notify_connect: '{}' '{}'", sock, path.unwrap_or_default());
+	
 	obj.state = EConnecting;
-	if let Err(e) = obj.s.connect(&sock_addr.into()) {
+	if let Err(e) = obj.s.connect(&sock.into()) {
 		if e.kind() != io::ErrorKind::WouldBlock {
 			error!(
-				"upnp_event_notify_connect: connect({}, {}, {}): {}",
+				"upnp_event_notify_connect: connect({}, {}): {}",
 				obj.s.as_raw_fd(),
-				addr_str,
-				port,
+				sock,
 				e
 			);
 			obj.state = EError;
@@ -281,7 +252,6 @@ fn upnp_event_notify_connect(obj: &mut upnp_event_notify) {
 }
 
 fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
-	// let obj = &mut rt.notify_list[index];
 	let service = rt.notify_list[index].sub.borrow().service;
 	let xml = match service {
 		EWanCFG => getVarsWANCfg(rt),
@@ -305,11 +275,10 @@ fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
 	}
 	let xml = xml.unwrap();
 
-	// 构建通知消息
 	let path = obj.path.as_deref().unwrap_or("/");
 	let msg = format!(
-		"NOTIFY {} HTTP/1.1\r\n\
-        Host: {}:{}\r\n\
+		"NOTIFY {path} HTTP/1.1\r\n\
+        Host: {}\r\n\
         Content-Type: text/xml; charset=\"utf-8\"\r\n\
         Content-Length: {}\r\n\
         NT: upnp:event\r\n\
@@ -319,14 +288,11 @@ fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
         Connection: close\r\n\
         Cache-Control: no-cache\r\n\
         \r\n\
-        {}\r\n",
-		path,
+        {xml}\r\n",
 		obj.addrstr,
-		obj.portstr,
-		xml.as_bytes().len() + 2,
+		xml.len() + 2,
 		obj.sub.borrow().uuid,
 		obj.sub.borrow().seq,
-		xml
 	);
 
 	// 设置buffer和状态
@@ -336,8 +302,8 @@ fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
 }
 fn upnp_event_send(obj: &mut upnp_event_notify) {
 	debug!(
-		"upnp_event_send: sending event notify message to {}:{}",
-		obj.addrstr, obj.portstr
+		"upnp_event_send: sending event notify message to {}",
+		obj.addrstr
 	);
 	debug!(
 		"upnp_event_send: msg: {}",
@@ -347,7 +313,7 @@ fn upnp_event_send(obj: &mut upnp_event_notify) {
 	match obj.s.send(&obj.buffer[obj.sent as usize..obj.tosend as usize]) {
 		Err(e) => {
 			if e.kind() != io::ErrorKind::WouldBlock && e.kind() != io::ErrorKind::Interrupted {
-				error!("upnp_event_send: send({}:{}): {}", obj.addrstr, obj.portstr, e);
+				error!("upnp_event_send: send({}): {}", obj.addrstr, e);
 				obj.state = EError;
 				return;
 			}
@@ -373,8 +339,7 @@ fn upnp_event_recv(obj: &mut upnp_event_notify) {
 			if e.kind() != io::ErrorKind::WouldBlock && e.kind() != io::ErrorKind::Interrupted {
 				error!("upnp_event_recv: recv(): {}", e);
 				obj.state = EError;
-			}
-			return;
+			};
 		}
 		Ok(n) => {
 			debug!(
@@ -406,8 +371,8 @@ fn upnp_event_process_notify(rt: &mut RtOptions, index: usize) {
 				Ok(Some(e)) => {
 					let obj = &mut rt.notify_list[index];
 					error!(
-						"upnp_event_process_notify: connect({}, {}): {}",
-						obj.addrstr, obj.portstr, e
+						"upnp_event_process_notify: connect({}): {}",
+						obj.addrstr, e
 					);
 					obj.state = EError;
 					return;
