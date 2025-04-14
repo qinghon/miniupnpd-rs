@@ -32,7 +32,7 @@ pub struct NameValueParserData {
 	pub l_head: Vec<NameValue>,
 	pub curelt_len: u8,
 	pub curelt: [u8; 63],
-	pub portListing: Option<String>,
+	// pub portListing: Option<String>,
 	pub portListingLength: i32,
 	pub topelt: bool,
 	pub cdata: String,
@@ -43,7 +43,7 @@ impl Default for NameValueParserData {
 			l_head: vec![],
 			curelt_len: 0,
 			curelt: [0; 63],
-			portListing: None,
+			// portListing: None,
 			portListingLength: 0,
 			topelt: false,
 			cdata: String::new(),
@@ -84,8 +84,8 @@ fn NameValueParserEndElt(d: &mut NameValueParserData, _name: &str) {
 }
 fn NameValueParserGetData(d: &mut NameValueParserData, datas: &str) {
 	if &d.curelt[0..14] == b"NewPortListing" {
-		d.portListing = None;
-		d.portListing = Some(String::from(datas));
+		// d.portListing = None;
+		// d.portListing = Some(String::from(datas));
 	} else {
 		d.cdata = String::from(datas);
 	}
@@ -106,7 +106,7 @@ pub fn ParseNameValue(buffer: &str, data: &mut NameValueParserData) {
 }
 
 pub fn ClearNameValueList(pdata: &mut NameValueParserData) {
-	pdata.portListing = None;
+	// pdata.portListing = None;
 	pdata.l_head.clear();
 	pdata.l_head.shrink_to_fit();
 }

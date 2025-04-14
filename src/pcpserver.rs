@@ -606,9 +606,10 @@ fn CreatePCPMap_FW(pcp_msg_info: &mut pcp_info) -> i32 {
 				pcp_msg_info.int_port,
 				if pcp_msg_info.protocol == TCP { "TCP" } else { "UDP" }
 			);
-
-			r = upnp_update_inboundpinhole(&mut rt.nat_impl, entry.index as u16, pcp_msg_info.lifetime);
-			return if r >= 0 { PCP_SUCCESS } else { PCP_ERR_NO_RESOURCES } as i32;
+			let index = entry.index;
+			let _ = entry;
+			r = upnp_update_inboundpinhole(&mut rt.nat_impl, index as u16, pcp_msg_info.lifetime);
+			(if r >= 0 { PCP_SUCCESS } else { PCP_ERR_NO_RESOURCES }) as _
 		}
 		None => {
 			let desc = pcp_msg_info.desc.as_ref().map(String::as_str).unwrap_or("");

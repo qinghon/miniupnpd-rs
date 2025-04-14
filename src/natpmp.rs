@@ -289,7 +289,6 @@ pub fn SendNATPMPPublicAddressChangeNotification(
 
 #[cfg(test)]
 mod tests {
-	use super::*;
 	#[test]
 	fn test_natpmp_packet_parse() {}
 }

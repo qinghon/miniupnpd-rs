@@ -7,38 +7,55 @@ use std::io::{BufRead, Write};
 use std::net::Ipv6Addr;
 use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, io};
 
-pub fn reload_from_lease_file6(nat: &mut nat_impl, lease_file6: &str) -> Result<(), String> {
+pub fn reload_from_lease_file6(nat: &mut nat_impl, lease_file6: &str) -> io::Result<()> {
 	if !Path::new(lease_file6).exists() {
-		return Err("Lease file does not exist".to_string());
+		return Err(io::ErrorKind::NotFound.into());
 	}
 
-	let file = File::open(lease_file6).map_err(|e| format!("Could not open lease file: {}", e))?;
+	let file = File::open(lease_file6)?;
 
 	if remove_file(lease_file6).is_err() {
 		eprintln!("Warning: Could not unlink file {}", lease_file6);
 	}
 
-	let current_time =
-		SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| format!("Time error: {}", e))?.as_secs();
+	let current_time = upnp_time().as_secs();
 
 	for line in io::BufReader::new(file).lines() {
-		let line = line.map_err(|e| format!("Error reading line: {}", e))?;
+		let line = line?;
 		println!("Parsing lease file line '{}'", line);
 
 		let mut parts = line.split(';');
 
-		let proto = parts.next().and_then(|s| Some(proto_atoi(s))).ok_or("Unrecognized data in lease file")?;
-		let int_client =
-			parts.next().and_then(|s| s.parse::<Ipv6Addr>().ok()).ok_or("Unrecognized data in lease file")?;
-		let int_port = parts.next().and_then(|s| s.parse::<u16>().ok()).ok_or("Invalid internal port")?;
-		let rem_client =
-			parts.next().and_then(|s| s.parse::<Ipv6Addr>().ok()).ok_or("Unrecognized data in lease file")?;
-		let rem_port = parts.next().and_then(|s| s.parse::<u16>().ok()).ok_or("Invalid remote port")?;
-		let uid = parts.next().and_then(|s| s.parse::<i32>().ok()).ok_or("Invalid UID")?;
-		let timestamp = parts.next().and_then(|s| s.parse::<u32>().ok()).ok_or("Invalid timestamp")?;
+		let proto = match parts.next().and_then(|s| Some(proto_atoi(s))) {
+			Some(proto) => proto,
+			None => continue,
+		};
+		let int_client = match parts.next().and_then(|s| s.parse::<Ipv6Addr>().ok()) {
+			Some(int) => int,
+			None => continue,
+		};
+		let int_port = match parts.next().and_then(|s| s.parse::<u16>().ok()) {
+			Some(s) => s,
+			None => continue,
+		};
+		let rem_client = match parts.next().and_then(|s| s.parse::<Ipv6Addr>().ok()) {
+			Some(rem) => rem,
+			None => continue,
+		};
+		let rem_port = match parts.next().and_then(|s| s.parse::<u16>().ok()) {
+			Some(p) => p,
+			None => continue,
+		};
+		let uid = match parts.next().and_then(|s| s.parse::<i32>().ok()) {
+			Some(uid) => uid,
+			None => continue,
+		};
+		let timestamp = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
+			Some(v) => v,
+			None => continue,
+		};
 		let desc = parts.next();
 
 		let leaseduration = if timestamp > 0 {
@@ -416,13 +433,13 @@ pub fn lease_file6_expire() -> i32 {
 	0
 }
 
-pub fn upnp_find_inboundpinhole<P>(nat: &mut nat_impl, filter: P) -> Option<PinholeEntry>
+pub fn upnp_find_inboundpinhole<P>(nat: &mut nat_impl, filter: P) -> Option<&PinholeEntry>
 where
 	P: Fn(&PinholeEntry) -> bool,
 {
 	if let Some(mut iter) = nat.get_pinhole_iter() {
 		if let Some(p) = iter.find(|x| filter(x)) {
-			return Some(p.clone());
+			return Some(p);
 		}
 	}
 	None
@@ -520,21 +537,20 @@ pub fn upnp_add_inboundpinhole(
 	}
 	if uid_new >= 0 { 1 } else { -1 }
 }
-pub fn upnp_get_pinhole_info(nat: &mut nat_impl, uid: u16) -> Option<PinholeEntry> {
-	if let Some(iter) = nat.get_pinhole_iter() {
-		for entry in iter {
-			if entry.index as u16 == uid {
-				return Some(entry.clone());
-			}
+pub fn upnp_get_pinhole_info(nat: &mut nat_impl, uid: u16) -> Option<&PinholeEntry> {
+	for entry in nat.get_pinhole_iter()? {
+		if entry.index as u16 == uid {
+			return Some(entry);
 		}
 	}
+
 	None
 }
 
 pub fn upnp_update_inboundpinhole(nat: &mut nat_impl, uid: u16, leasetime: u32) -> i32 {
 	let timestamp = (upnp_time().as_secs() + leasetime as u64) as u32;
 	let ret = nat.update_pinhole(uid, timestamp);
-	if ret == 0{
+	if ret == 0 {
 		lease_file6_update(uid as i32, timestamp);
 	}
 	ret
