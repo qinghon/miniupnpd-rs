@@ -10,7 +10,7 @@ use crate::upnppinhole::*;
 use crate::upnpredirect::*;
 use crate::upnputils::*;
 use crate::warp::copy_from_slice;
-use crate::{Backend, TCP};
+use crate::Backend;
 use socket2::Socket;
 use std::fmt::Formatter;
 #[cfg(feature = "ipv6")]
@@ -604,7 +604,7 @@ fn CreatePCPMap_FW(pcp_msg_info: &mut pcp_info) -> i32 {
 				entry.index,
 				pcp_msg_info.mapped_ip,
 				pcp_msg_info.int_port,
-				if pcp_msg_info.protocol == TCP { "TCP" } else { "UDP" }
+				proto_itoa(pcp_msg_info.protocol)
 			);
 			let index = entry.index;
 			let _ = entry;
@@ -647,7 +647,7 @@ fn CreatePCPMap(pcp_msg_info: &mut pcp_info) {
 		if r == 0 { 6 } else { 3 },
 		"PCP MAP: {} mapping {} {}->{}:{} '{}'\0",
 		if r == 0 { "added" } else { "failed to add" },
-		if pcp_msg_info.protocol == TCP { "TCP" } else { "UDP" },
+		proto_itoa(pcp_msg_info.protocol),
 		pcp_msg_info.ext_port,
 		pcp_msg_info.mapped_ip,
 		pcp_msg_info.int_port,
@@ -734,7 +734,7 @@ fn DeletePCPMap(pcp_msg_info: &mut pcp_info) {
 			"Failed to remove PCP mapping to {}:{} {}",
 			pcp_msg_info.mapped_ip,
 			iport,
-			if proto == TCP { "TCP" } else { "UDP" },
+			proto_itoa(proto),
 		);
 		pcp_msg_info.result_code = PCP_ERR_NO_RESOURCES;
 	}

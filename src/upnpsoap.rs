@@ -29,7 +29,7 @@ use crate::upnpredirect::{
 };
 use crate::upnpreplyparse::{GetValueFromNameValueList, NameValueParserData, ParseNameValue};
 use crate::upnpurns::SERVICE_ID_WANIPC;
-use crate::upnputils::upnp_get_uptime;
+use crate::upnputils::{proto_atoi, upnp_get_uptime};
 use crate::{Backend, OS, TCP, UDP};
 
 pub const UPNP_UI4_MAX: u32 = u32::MAX;
