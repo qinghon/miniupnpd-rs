@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 /* Event magical values codes */
-use crate::getconnstatus::get_wan_connection_status;
+use crate::getconnstatus::{get_wan_connection_status_str};
 use crate::getifaddr::{addr_is_reserved, getifaddr};
 
 use crate::miniupnpdpath::*;
@@ -872,8 +872,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 				}
 
 				CONNECTIONSTATUS_MAGICALVALUE => {
-					let status = get_wan_connection_status(&global_option.get().unwrap().ext_ifname);
-					result.push_str(upnpallowedvalues[18usize + if status { 1 } else { 0 }]);
+					result.push_str(get_wan_connection_status_str(&global_option.get().unwrap().ext_ifname));
 				}
 
 				#[cfg(feature = "ipv6")]

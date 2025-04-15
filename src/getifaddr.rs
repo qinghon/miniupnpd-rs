@@ -7,6 +7,18 @@ use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::{mem, ptr};
 
+
+pub(crate) const GETIFADDR_OK:i8 = 0;
+pub(crate) const GETIFADDR_BAD_ARGS:i8 = -1;
+pub(crate) const GETIFADDR_SOCKET_ERROR:i8 = -2;
+pub(crate) const GETIFADDR_DEVICE_NOT_CONFIGURED:i8 = -3;
+pub(crate) const GETIFADDR_IOCTL_ERROR:i8 = -4;
+pub(crate) const GETIFADDR_IF_DOWN:i8 = -5;
+pub(crate) const GETIFADDR_NO_ADDRESS:i8 = -6;
+pub(crate) const GETIFADDR_INET_NTOP_ERROR:i8 = -7;
+pub(crate) const GETIFADDR_GETIFADDRS_ERROR:i8 = -8;
+
+
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct ReservedAddr {
