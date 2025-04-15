@@ -69,7 +69,7 @@ fn to_mut_ptr<T>(opt: Option<&mut T>) -> *mut T {
 	target_os = "cygwin"
 ))]
 #[derive(Default, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct IfName(Box<str>);
+pub struct IfName(Rc<str>);
 #[cfg(any(
 	target_os = "haiku",
 	target_os = "illumos",
@@ -87,7 +87,7 @@ impl FromStr for IfName {
 		d.push_str(s);
 		d.push_str("\0");
 
-		let buf: Box<str> = Box::from(d);
+		let buf: Rc<str> = Rc::from(d);
 
 		Ok(IfName(buf))
 	}

@@ -19,8 +19,8 @@ use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::net::{Ipv6Addr, SocketAddrV4, SocketAddrV6};
 use std::os::fd::AsRawFd;
-use std::{fmt, mem};
 use std::rc::Rc;
+use std::{fmt, mem};
 
 const PCP_MIN_LEN: u16 = 24;
 const PCP_MAX_LEN: u16 = 1100;
@@ -612,7 +612,7 @@ fn CreatePCPMap_FW(pcp_msg_info: &mut pcp_info) -> i32 {
 			(if r >= 0 { PCP_SUCCESS } else { PCP_ERR_NO_RESOURCES }) as _
 		}
 		None => {
-			let desc = pcp_msg_info.desc.as_ref().map(String::as_str).unwrap_or("");
+			let desc = pcp_msg_info.desc.as_deref().unwrap_or("");
 			r = upnp_add_inboundpinhole(
 				&mut rt.nat_impl,
 				None, // raddr

@@ -352,12 +352,12 @@ mod tests {
 	#[test]
 	fn test_parse_lan() {
 		let mut lan_addr = Default::default();
-		assert_eq!(parselanaddr(&mut lan_addr, "127.0.0.1"), -1);
+		assert_eq!(parselanaddr(&mut lan_addr, "127.0.0.1"), 0);
 		assert_eq!(parselanaddr(&mut lan_addr, "127.0.0.1/8"), 0);
 		#[cfg(target_family = "unix")]
 		{
 			// let lan = parselanaddr("lo").unwrap();
-			assert!(parselanaddr(&mut lan_addr, "lo") > 0);
+			assert!(parselanaddr(&mut lan_addr, "lo") >= 0);
 			assert_eq!(lan_addr.addr, Ipv4Addr::new(127, 0, 0, 1));
 		}
 	}

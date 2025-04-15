@@ -12,6 +12,7 @@
 mod nftnl {
 	include!(concat!(env!("OUT_DIR"), "/nftnl.rs"));
 }
+use crate::Rc;
 use libc::nlmsghdr;
 use nftnl::*;
 mod mnl {
@@ -179,7 +180,7 @@ pub(super) struct rule_t {
 	pub(super) reg2_val: u32,
 	pub(super) packets: u64,
 	pub(super) bytes: u64,
-	pub(super) desc: Box<str>,
+	pub(super) desc: Rc<str>,
 }
 impl Default for rule_t {
 	fn default() -> Self {
@@ -208,7 +209,7 @@ impl Default for rule_t {
 			reg2_val: 0,
 			packets: 0,
 			bytes: 0,
-			desc: Box::from(""),
+			desc: Rc::from(""),
 		}
 	}
 }
@@ -820,7 +821,7 @@ extern "C" fn table_cb(nlh: *const nlmsghdr, data: *mut libc::c_void) -> i32 {
 	if rule.is_set(NFTNL_RULE_USERDATA) {
 		let descr = rule.get_data(NFTNL_RULE_USERDATA);
 		if !descr.is_empty() {
-			r.desc = Box::from(unsafe { str::from_utf8_unchecked(descr) });
+			r.desc = Rc::from(unsafe { str::from_utf8_unchecked(descr) });
 		}
 	}
 

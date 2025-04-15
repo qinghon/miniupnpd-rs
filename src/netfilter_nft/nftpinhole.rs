@@ -1,3 +1,4 @@
+use crate::Rc;
 use crate::PinholeEntry;
 use crate::netfilter_nft::nftnlrdr::nftable;
 use crate::netfilter_nft::nftnlrdr_misc::rule_t;
@@ -39,7 +40,7 @@ impl<'a> Iterator for Nftable6Iter<'a> {
 		let (uid, ts) = parse_pinhole_desc(&rule.desc)?;
 		self.entry.index = uid as _;
 		self.entry.timestamp = ts as _;
-		self.entry.desc = Some(Box::from(rule.desc.split_ascii_whitespace().nth(2)?.as_str()));
+		self.entry.desc = Some(Rc::from(rule.desc.split_ascii_whitespace().nth(2)?.as_str()));
 
 		Some(unsafe { &mut *((&mut self.entry) as *mut PinholeEntry) })
 	}

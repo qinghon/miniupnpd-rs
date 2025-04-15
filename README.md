@@ -68,3 +68,38 @@ RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none -C target-feature=-crt-static
 Currently, the project uses a significant amount of unsafe code to access cABI and reduce binary size. Due to the nature of the project, it is difficult to completely eliminate unsafe usage; 
 
 however, we will gradually reduce its impact and conduct rigorous testing.
+
+
+## config change 
+
+some feature marco in config.h are merged/remove, the following is the list
+if real need , tell me I can roll back
+
+### merged
+
+- `ENABLE_6FC_SERVICE` merge to `ipv6`
+- `ENABLE_HTTP_DATE` merge to `strict`
+- `DELAY_MSEARCH_RESPONSE` merge to `strict`
+- `ADVERTISE_WANPPPCONN` merge to `strict`
+- `RANDOMIZE_URLS` to `randomurl`
+
+### removed
+- `HAS_DUMMY_SERVICE`: only use `ENABLE_L3F_SERVICE`
+- `SSDP_PACKET_MAX_LEN`: no limit for String impl
+- `HAVE_IP_MREQN`: force enabled, base on rust cannot support [linux<3.2](https://doc.rust-lang.org/nightly/rustc/platform-support.html) 
+- `ENABLE_NATPMP`: force enabled, pmp/pcp is a really simple and suit protocol for the nat firewall , won't close it unless there is enough reason
+- `USE_DAEMON`: use dynamic flag
+- `ENABLE_LEASEFILE`: force enabled
+- `ENABLE_L3F_SERVICE`: force enabled
+
+
+### Not yet supported
+
+- [ ] `ENABLE_GETIFSTATS_CACHING`
+- [ ] `GETIFSTATS_CACHING_DURATION`
+- [ ] `LEASEFILE_USE_REMAINING_TIME`
+- [ ] `CHECK_PORTINUSE`
+- [ ] `V6SOCKETS_ARE_V6ONLY`
+- [ ] `ENABLE_HTTPS`
+- [ ] `ENABLE_NFQUEUE`
+- [ ] `USE_SYSTEMD`

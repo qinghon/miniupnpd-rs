@@ -263,6 +263,7 @@ fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 
 	let fw = env::var("FW").expect("FW environment variable not set");
+	// let fw = "nftables".to_string();
 	let os_version = env::var("OS_VERSION").expect("OS_VERSION environment variable not set");
 	if os_version.contains("%s") {
 		panic!("OS_VERSION contain '%s'\n");

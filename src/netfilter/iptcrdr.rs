@@ -30,20 +30,21 @@ pub(super) struct rdr_desc {
 	pub(super) proto: u8,
 	pub(super) eport: u16,
 	pub(super) timestamp: u64,
-	pub(super) desc: Box<str>,
+	pub(super) desc: Option<Rc<str>>,
 }
 
 use super::iptpinhole::*;
 use super::tiny_nf_nat::*;
 use crate::rdr_name_type::{self};
 use crate::upnputils::upnp_time;
-use crate::{Backend, FilterEntry, error};
-use crate::{PinholeEntry, log};
+use crate::{error, Backend, FilterEntry};
+use crate::{log, PinholeEntry};
 use crate::{RuleTable, TCP};
 use core::ffi;
 use libc::{__errno_location, c_char, c_int, c_uint};
 use std::ffi::{CStr, CString};
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::rc::Rc;
 use std::str::FromStr;
 use std::{mem, ptr};
 
@@ -366,7 +367,7 @@ impl Backend for iptable {
 		if let Some(index) = self.rdr_desc.iter().position(|x| x.proto == proto && x.eport == eport) {
 			self.rdr_desc.swap_remove(index);
 		}
-		self.add_redirect_desc(rdr_desc { timestamp: timestamp as _, eport, proto, desc: Box::from(desc) });
+		self.add_redirect_desc(rdr_desc { timestamp: timestamp as _, eport, proto, desc: Some(Rc::from(desc)) });
 		0
 	}
 
@@ -386,7 +387,7 @@ impl Backend for iptable {
 			}
 		}
 
-		self.add_redirect_desc(rdr_desc { timestamp: timestamp as _, eport, proto, desc: Box::from(desc) });
+		self.add_redirect_desc(rdr_desc { timestamp: timestamp as _, eport, proto, desc: Some(Rc::from(desc)) });
 
 		0
 	}
@@ -438,7 +439,7 @@ impl Backend for iptable {
 				timestamp: timestamp as u64,
 				eport,
 				proto,
-				desc: Box::from(desc.unwrap_or_default()),
+				desc: desc.map(|x|Rc::from(x)),
 			});
 
 			r = self.add_entry(
@@ -567,7 +568,7 @@ impl Backend for iptable {
 			dport: entry.iport,
 			uid: self.uid,
 			proto: entry.proto,
-			desc: entry.desc.clone().unwrap_or_default(),
+			desc: entry.desc.clone(),
 		});
 		if self.uid == 65535 {
 			self.uid = 0;
@@ -684,7 +685,7 @@ fn fill_from_redirect(
 		entry.dport = u16::from_be(mr.range[0].min.all);
 	}
 	if let Some(desc) = backend.get_redirect_desc(entry.sport, entry.proto) {
-		entry.desc = Some(Box::from(desc.desc.as_str()));
+		entry.desc = desc.desc.clone();
 		entry.timestamp = desc.timestamp;
 	}
 }
@@ -985,9 +986,6 @@ mod tests {
 	#[test]
 	fn test_iptable_no_root() {
 		let mut nat = nat_impl::init();
-		// let b:Option<Box<str>> = Some(Box::from("a"));
-		//
-		// println!("{}", b.unwrap_or_default())
 	}
 	#[test]
 	fn test_iptable_root() {

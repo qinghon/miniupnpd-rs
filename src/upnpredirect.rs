@@ -1,19 +1,19 @@
-use crate::RuleTable::Redirect;
 use crate::options::RtOptions;
 use crate::upnpevents::subscriber_service_enum::EWanIPC;
 use crate::upnpevents::upnp_event_var_change_notify;
 use crate::upnpglobalvars::global_option;
 use crate::upnppermissions::check_upnp_rule_against_permissions;
-use crate::upnputils::upnp_time;
-use crate::{Backend, FilterEntry, TCP, UDP, UDPLITE, nat_impl};
+use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
+use crate::RuleTable::Redirect;
+use crate::{nat_impl, Backend, FilterEntry};
 use std::fs;
-use std::fs::{File, remove_file};
+use std::fs::{remove_file, File};
 use std::io::{self, BufRead, Write};
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -25,21 +25,7 @@ pub struct rule_state {
 	pub to_remove: u8,
 }
 
-pub fn proto_atoi(protocol: &str) -> u8 {
-	match protocol {
-		"UDP" => UDP,
-		"UDPLITE" => UDPLITE,
-		_ => TCP,
-	}
-}
-pub(crate) fn proto_itoa(proto: u8) -> &'static str {
-	match proto {
-		UDP => "UDP",
-		TCP => "TCP",
-		UDPLITE => "UDPLITE",
-		_ => "*UNKNOWN*",
-	}
-}
+
 fn lease_file_add(iaddr: Ipv4Addr, eport: u16, iport: u16, proto: u8, desc: Option<&str>, timestamp: u32) -> i32 {
 	let lease_file = &global_option.get().unwrap().lease_file;
 	if lease_file.is_empty() {
@@ -57,11 +43,10 @@ fn lease_file_add(iaddr: Ipv4Addr, eport: u16, iport: u16, proto: u8, desc: Opti
 		// timestamp -= upnp_time().as_secs() as u32;
 	};
 
-	let _ = write!(
+	let _ = writeln!(
 		fd,
-		"{}:{eport}:{}:{iport}:{timestamp}:{}\n",
+		"{}:{eport}:{iaddr}:{iport}:{timestamp}:{}",
 		proto_itoa(proto),
-		iaddr,
 		desc.unwrap_or("")
 	);
 
@@ -77,7 +62,7 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 		Err(_) => return -1,
 	};
 	let tmpfilename = format!("{}XXXXXX", lease_file);
-
+	
 	let mut tmp = match fs::File::create(tmpfilename.as_str()) {
 		Ok(f) => f,
 		Err(_) => {
@@ -89,17 +74,12 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 	let mut fdr = io::BufReader::new(fd);
 	let mut buf = String::with_capacity(512);
 	let str = format!("{}:{}", proto_itoa(proto), eport);
-	loop {
-		match fdr.read_line(&mut buf) {
-			Ok(l) => {
-				if l == 0 {
-					break;
-				}
-				if !buf.starts_with(str.as_str()) {
-					let _ = tmp.write(buf.as_bytes());
-				}
-			}
-			Err(_) => break,
+	while let Ok(l) = fdr.read_line(&mut buf) {
+		if l == 0 {
+			break;
+		}
+		if !buf.starts_with(str.as_str()) {
+			let _ = tmp.write(buf.as_bytes());
 		}
 	}
 
@@ -109,31 +89,45 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 	}
 	0
 }
-pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> Result<(), String> {
+pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> io::Result<()> {
 	if !Path::new(lease_file).exists() {
-		return Err("Lease file does not exist".to_string());
+		return Err(io::ErrorKind::NotFound.into());
 	}
 
-	let file = File::open(lease_file).map_err(|e| format!("Could not open lease file: {}", e))?;
+	let file = File::open(lease_file)?;
 
 	if remove_file(lease_file).is_err() {
 		eprintln!("Warning: Could not unlink file {}", lease_file);
 	}
 
-	let current_time =
-		SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| format!("Time error: {}", e))?.as_secs();
+	let current_time = upnp_time().as_secs();
 
 	for line in io::BufReader::new(file).lines() {
-		let line = line.map_err(|e| format!("Error reading line: {}", e))?;
+		let line = line?;
 		println!("Parsing lease file line '{}'", line);
 
 		let mut parts = line.split(':');
-
-		let proto = parts.next().and_then(|s| Some(proto_atoi(s))).ok_or("Unrecognized data in lease file")?;
-		let eport = parts.next().and_then(|s| s.parse::<u16>().ok()).ok_or("Invalid external port")?;
-		let iaddr = parts.next().and_then(|s| s.parse::<Ipv4Addr>().ok()).ok_or("Unrecognized data in lease file")?;
-		let iport = parts.next().and_then(|s| s.parse::<u16>().ok()).ok_or("Invalid internal port")?;
-		let timestamp = parts.next().and_then(|s| s.parse::<u32>().ok()).ok_or("Invalid timestamp")?;
+		let proto = match parts.next().and_then(|s| Some(proto_atoi(s))) {
+			Some(proto) => proto,
+			None => continue,
+		};
+		let eport = match parts.next().and_then(|s| s.parse::<u16>().ok()) {
+			Some(p) => p,
+			None => continue,
+		};
+		let iaddr = match parts.next().and_then(|s| s.parse::<Ipv4Addr>().ok()) {
+			Some(int) => int,
+			None => continue,
+		};
+		let iport = match parts.next().and_then(|s| s.parse::<u16>().ok()) {
+			Some(s) => s,
+			None => continue,
+		};
+		
+		let timestamp = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
+			Some(v) => v,
+			None => continue,
+		};
 		let desc = parts.next();
 
 		let leaseduration = if timestamp > 0 {

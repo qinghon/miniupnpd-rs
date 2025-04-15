@@ -15,7 +15,7 @@ use libc::{__errno_location, c_char};
 use std::ffi::{CStr, CString};
 use std::net::Ipv6Addr;
 use std::{mem, ptr};
-
+use std::rc::Rc;
 use super::iptcrdr::iptc::*;
 
 pub(super) const IP6T_F_PROTO: u8 = 0x01;
@@ -47,7 +47,7 @@ pub(super) struct pinhole_t {
 	pub(super) dport: u16,
 	pub(super) uid: u16,
 	pub(super) proto: u8,
-	pub(super) desc: Box<str>,
+	pub(super) desc: Option<Rc<str>>,
 }
 
 pub(super) struct Ip6Handle(*mut xtc_handle);

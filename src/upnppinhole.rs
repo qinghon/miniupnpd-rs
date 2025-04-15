@@ -1,6 +1,5 @@
 use crate::upnpglobalvars::global_option;
-use crate::upnpredirect::{proto_atoi, proto_itoa};
-use crate::upnputils::upnp_time;
+use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
 use crate::{Backend, PinholeEntry, nat_impl};
 use std::fs::{File, remove_file};
 use std::io::{BufRead, Write};
@@ -8,6 +7,7 @@ use std::net::Ipv6Addr;
 use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
 use std::{fs, io};
+use std::rc::Rc;
 
 pub fn reload_from_lease_file6(nat: &mut nat_impl, lease_file6: &str) -> io::Result<()> {
 	if !Path::new(lease_file6).exists() {
@@ -515,7 +515,7 @@ pub fn upnp_add_inboundpinhole(
 			eport: rport,
 			iaddr,
 			eaddr: raddr.unwrap_or(Ipv6Addr::UNSPECIFIED),
-			desc: desc.map(Box::from),
+			desc: desc.map(Rc::from),
 			packets: 0,
 			bytes: 0,
 			timestamp,

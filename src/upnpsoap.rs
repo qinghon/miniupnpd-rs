@@ -23,10 +23,7 @@ use crate::upnppermissions::{AllowBitMap, get_permitted_ext_ports};
 use crate::upnppinhole::{
 	upnp_add_inboundpinhole, upnp_delete_inboundpinhole, upnp_get_pinhole_info, upnp_update_inboundpinhole,
 };
-use crate::upnpredirect::{
-	proto_atoi, upnp_delete_redirection, upnp_get_portmapping_number_of_entries, upnp_get_portmappings_in_range,
-	upnp_get_redirection_infos, upnp_get_redirection_infos_by_index, upnp_redirect,
-};
+use crate::upnpredirect::*;
 use crate::upnpreplyparse::{GetValueFromNameValueList, NameValueParserData, ParseNameValue};
 use crate::upnpurns::SERVICE_ID_WANIPC;
 use crate::upnputils::{proto_atoi, upnp_get_uptime};

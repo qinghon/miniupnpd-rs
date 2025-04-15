@@ -10,6 +10,7 @@
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::RawFd;
+use std::rc::Rc;
 use std::time::Duration;
 #[macro_use]
 pub mod log;
@@ -197,7 +198,7 @@ pub struct FilterEntry {
 	pub packets: u64,
 	pub bytes: u64,
 
-	pub desc: Option<Box<str>>,
+	pub desc: Option<Rc<str>>,
 	pub timestamp: u64,
 }
 impl FilterEntry {
@@ -236,7 +237,7 @@ pub struct PinholeEntry {
 	pub proto: u8,
 	pub iaddr: Ipv6Addr,
 	pub eaddr: Ipv6Addr,
-	pub desc: Option<Box<str>>,
+	pub desc: Option<Rc<str>>,
 	pub packets: u64,
 	pub bytes: u64,
 	pub timestamp: u64,
