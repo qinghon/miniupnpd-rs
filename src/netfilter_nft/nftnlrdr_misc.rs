@@ -32,7 +32,7 @@ use std::fmt::Debug;
 use std::mem::{offset_of, size_of};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::ptr::slice_from_raw_parts;
-use std::{io, ptr};
+use std::{io, mem, ptr};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -147,7 +147,7 @@ pub(super) enum rule_chain_type {
 }
 use crate::netfilter_nft::nftnlrdr_misc::nftnl::nftnl_output_type::NFTNL_OUTPUT_DEFAULT;
 use crate::upnputils::upnp_time;
-use crate::warp::{copy_from_slice, Ip4Addr};
+use crate::warp::{Ip4Addr, copy_from_slice};
 use crate::{TCP, UDP};
 
 const RULE_CACHE_INVALID: bool = false;
@@ -276,6 +276,9 @@ impl NftnlRule {
 	}
 	#[inline]
 	pub(super) fn add_expr(&mut self, expr: NftnlExpr) {
+		unsafe {
+			mem::forget(expr);
+		}
 		unsafe { nftnl_rule_add_expr(self.0, expr.0) }
 	}
 	pub(super) fn nlmsg_parse(&mut self, nlmsg: *const nlmsghdr) -> i32 {

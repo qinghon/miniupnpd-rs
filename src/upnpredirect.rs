@@ -1,13 +1,13 @@
+use crate::RuleTable::Redirect;
 use crate::options::RtOptions;
 use crate::upnpevents::subscriber_service_enum::EWanIPC;
 use crate::upnpevents::upnp_event_var_change_notify;
 use crate::upnpglobalvars::global_option;
 use crate::upnppermissions::check_upnp_rule_against_permissions;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
-use crate::RuleTable::Redirect;
-use crate::{nat_impl, Backend, FilterEntry};
+use crate::{Backend, FilterEntry, OS, nat_impl};
 use std::fs;
-use std::fs::{remove_file, File};
+use std::fs::{File, remove_file};
 use std::io::{self, BufRead, Write};
 use std::net::Ipv4Addr;
 use std::ops::Add;
@@ -165,9 +165,9 @@ pub fn upnp_redirect(
 	desc: Option<&str>,
 	leaseduration: u32,
 ) -> i32 {
-	let v = global_option.get().unwrap();
+	let op = global_option.get().unwrap();
 
-	if !check_upnp_rule_against_permissions(&v.upnpperms, eport, iaddr, iport, desc.unwrap_or("")) {
+	if !check_upnp_rule_against_permissions(&op.upnpperms, eport, iaddr, iport, desc.unwrap_or("")) {
 		info!(
 			"redirection permission check failed for {}->{}:{} {} {}",
 			eport,
@@ -222,6 +222,11 @@ pub fn upnp_redirect(
 			);
 			return -2;
 		}
+	} else if cfg!(feature = "portinuse")
+		&& rt.os.port_in_use(&rt.nat_impl, &op.ext_ifname, eport, proto, &iaddr, iport) > 0
+	{
+		info!("port {} protocol {} already in use", eport, proto);
+		return -4;
 	} else {
 		let timestamp = if leaseduration > 0 {
 			upnp_time().as_secs() + leaseduration as u64

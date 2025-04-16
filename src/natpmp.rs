@@ -3,10 +3,10 @@ use crate::getifaddr::{addr_is_reserved, getifaddr};
 use crate::options::{Options, RtOptions};
 use crate::upnpglobalvars::*;
 use crate::upnppermissions::check_upnp_rule_against_permissions;
-use crate::upnpredirect::{_upnp_delete_redir, upnp_redirect_internal};
+use crate::upnpredirect::{_upnp_delete_redir, upnp_redirect};
 use crate::upnputils::{proto_itoa, upnp_time};
 use crate::warp::recv_from_if;
-use crate::{Backend, TCP, UDP, error, info, warn};
+use crate::*;
 use socket2::Socket;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
@@ -155,6 +155,8 @@ pub fn ProcessIncomingNATPMPPacket(
 					let mut eport = iport;
 					let mut eport_first = 0;
 					let mut any_eport_allowed = false;
+					#[cfg(feature = "portinuse")]
+					let op = global_option.get().unwrap();
 					while resp[3] == 0 {
 						if eport_first == 0 {
 							// first time in loop
@@ -192,6 +194,19 @@ pub fn ProcessIncomingNATPMPPacket(
 							continue;
 						}
 						any_eport_allowed = true;
+						#[cfg(feature = "portinuse")]
+						{
+							if rt.os.port_in_use(&rt.nat_impl, &op.ext_ifname, eport, proto, senderaddr.ip(), iport) > 0
+							{
+								info!("port {} protocol {} already in use", eport, proto_itoa(proto));
+								eport += 1;
+								if eport == 0 {
+									eport += 1
+								}
+								continue;
+							}
+						}
+
 						if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.sport == eport && x.proto == proto) {
 							if entry.daddr.octets() == senderaddr.ip().octets() && iport == entry.dport {
 								info!(
@@ -214,9 +229,25 @@ pub fn ProcessIncomingNATPMPPacket(
 						// do the redirection
 						let timestamp = upnp_time().as_secs() + lifetime as u64;
 						let desc = format!("NAT-PMP {} {}", eport, proto_str);
-						if upnp_redirect_internal(rt, None, *senderaddr.ip(), eport, iport, proto, 
-						                       Some(desc.as_str()), timestamp as _) < 0 {
-							error!("Failed to add NAT-PMP {} {}->{}:{} '{}'", eport, proto_str, senderaddr.ip(), iport, desc);
+						if upnp_redirect(
+							rt,
+							None,
+							*senderaddr.ip(),
+							eport,
+							iport,
+							proto,
+							Some(desc.as_str()),
+							timestamp as _,
+						) < 0
+						{
+							error!(
+								"Failed to add NAT-PMP {} {}->{}:{} '{}'",
+								eport,
+								proto_str,
+								senderaddr.ip(),
+								iport,
+								desc
+							);
 							resp[3] = 3;
 						}
 						break;

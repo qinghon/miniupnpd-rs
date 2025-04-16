@@ -10,7 +10,7 @@ use crate::upnppinhole::*;
 use crate::upnpredirect::*;
 use crate::upnputils::*;
 use crate::warp::copy_from_slice;
-use crate::Backend;
+use crate::*;
 use socket2::Socket;
 use std::fmt::Formatter;
 #[cfg(feature = "ipv6")]
@@ -156,7 +156,7 @@ pub struct pcp_info<'a> {
 	#[cfg(feature = "pcp_flowp")]
 	dscp_down: u8,
 	#[cfg(feature = "pcp_flowp")]
-	flowp_present: u8
+	flowp_present: u8,
 }
 impl Default for pcp_info<'_> {
 	fn default() -> Self {
@@ -190,8 +190,7 @@ impl Default for pcp_info<'_> {
 			#[cfg(feature = "pcp_flowp")]
 			dscp_down: 0,
 			#[cfg(feature = "pcp_flowp")]
-			flowp_present: 0
-			
+			flowp_present: 0,
 		}
 	}
 }
@@ -532,6 +531,31 @@ fn CreatePCPMap_NAT(pcp_msg_info: &mut pcp_info) -> i32 {
 		}
 
 		any_eport_allowed = 1;
+
+		#[cfg(feature = "portinuse")]
+		{
+			if rt.os.port_in_use(
+				&rt.nat_impl,
+				&op.ext_ifname,
+				pcp_msg_info.ext_port,
+				pcp_msg_info.protocol,
+				&pcp_msg_info.mapped_ip.to_ipv4_mapped().unwrap(),
+				pcp_msg_info.int_port,
+			) > 0
+			{
+				info!(
+					"port {} protocol {} already in use",
+					pcp_msg_info.ext_port,
+					proto_itoa(pcp_msg_info.protocol)
+				);
+				pcp_msg_info.ext_port += 1;
+				if pcp_msg_info.ext_port == 0 {
+					pcp_msg_info.ext_port += 1;
+				}
+				continue;
+			}
+		}
+
 		if let Some(entry) = rt
 			.nat_impl
 			.get_redirect_rule(|x| x.dport == pcp_msg_info.ext_port && x.proto == pcp_msg_info.protocol)

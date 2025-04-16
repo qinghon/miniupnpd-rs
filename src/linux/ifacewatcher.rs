@@ -31,7 +31,7 @@ impl linux {
 			unsafe { libc::close(s) };
 			return None;
 		}
-		Some(RawFd::from(s))
+		Some(s as _)
 	}
 	pub(super) fn ProcessInterfaceWatchNotify_(&self, ext_ifname: &IfName, fd: RawFd, need_change: &mut bool) {
 		let mut buf: [MaybeUninit<u8>; 4096] = [MaybeUninit::uninit(); 4096];
