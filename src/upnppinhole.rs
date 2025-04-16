@@ -6,8 +6,8 @@ use std::io::{BufRead, Write};
 use std::net::Ipv6Addr;
 use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
-use std::{fs, io};
 use std::rc::Rc;
+use std::{fs, io};
 
 pub fn reload_from_lease_file6(nat: &mut nat_impl, lease_file6: &str) -> io::Result<()> {
 	if !Path::new(lease_file6).exists() {

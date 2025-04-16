@@ -217,7 +217,7 @@ fn probe_libuuid() {
 	if env::var("LIB_UUID") == Ok("1".to_string()) {
 		println!("cargo:rustc-link-lib=uuid");
 		println!("cargo:rustc-cfg=uuid=\"libuuid\"");
-	}else {
+	} else {
 		println!("cargo:rustc-cfg=uuid=\"native\"");
 	}
 }

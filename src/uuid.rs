@@ -1,12 +1,12 @@
+#[cfg(uuid = "libuuid")]
+use libc::c_int;
 use std::fmt::{Display, Formatter};
-use std::{io, ptr};
 use std::mem::MaybeUninit;
 use std::str::FromStr;
-#[cfg(uuid="libuuid")]
-use libc::c_int;
-#[cfg(uuid="libuuid")]
+use std::{io, ptr};
+#[cfg(uuid = "libuuid")]
 unsafe extern "C" {
-	pub(super) fn uuid_parse(buf:*const u8, uu: *mut UUID) -> c_int;
+	pub(super) fn uuid_parse(buf: *const u8, uu: *mut UUID) -> c_int;
 	pub(super) fn uuid_unparse(uu: *const UUID, buf: *mut u8);
 	pub(super) fn uuid_generate(out: *mut u8);
 }
@@ -17,7 +17,7 @@ pub struct UUID(pub [u8; 16]);
 
 impl FromStr for UUID {
 	type Err = io::Error;
-	#[cfg(uuid="native")]
+	#[cfg(uuid = "native")]
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		if s.len() != 36 {
 			return Err(io::ErrorKind::InvalidInput.into());
@@ -26,8 +26,7 @@ impl FromStr for UUID {
 		fn fill_buf_from_str(s: Option<&str>, buf: &mut [u8]) -> io::Result<()> {
 			if let Some(s) = s {
 				for i in 0..s.len() / 2 {
-					buf[i] = u8::from_str_radix(&s[2 * i..2 * i + 2], 16)
-						.map_err(|_| io::ErrorKind::InvalidInput)?;
+					buf[i] = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).map_err(|_| io::ErrorKind::InvalidInput)?;
 				}
 			} else {
 				return Err(io::ErrorKind::InvalidInput.into());
@@ -43,14 +42,14 @@ impl FromStr for UUID {
 
 		Ok(Self(u))
 	}
-	#[cfg(uuid="libuuid")]
+	#[cfg(uuid = "libuuid")]
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		if s.len() != 36 {
 			return Err(io::ErrorKind::InvalidInput.into());
 		}
-		let mut buf:MaybeUninit<[u8;37]> = MaybeUninit::uninit();
-		let mut u:MaybeUninit<Self> = MaybeUninit::uninit();
-		
+		let mut buf: MaybeUninit<[u8; 37]> = MaybeUninit::uninit();
+		let mut u: MaybeUninit<Self> = MaybeUninit::uninit();
+
 		unsafe {
 			ptr::copy_nonoverlapping(s.as_ptr(), buf.as_mut_ptr() as *mut u8, s.len());
 			let mut buf = buf.assume_init();
@@ -106,8 +105,7 @@ impl From<[u8; 16]> for UUID {
 impl UUID {
 	#[cfg(uuid = "libuuid")]
 	pub fn generate() -> Self {
-		
-		let mut u:MaybeUninit<[u8;16]> = MaybeUninit::uninit();
+		let mut u: MaybeUninit<[u8; 16]> = MaybeUninit::uninit();
 		unsafe {
 			uuid_generate(u.as_mut_ptr() as *mut u8);
 		}
@@ -116,16 +114,15 @@ impl UUID {
 	}
 	#[cfg(uuid = "native")]
 	pub fn generate() -> Self {
-		let mut u :[u8;16] = random();
+		let mut u: [u8; 16] = random();
 		u[6] = (u[6] & 0xF) | 0x40;
 		Self(u)
 	}
-	
 }
 #[cfg(test)]
 mod tests {
-	use std::str::FromStr;
 	use super::UUID;
+	use std::str::FromStr;
 
 	#[test]
 	fn test_uuid() {

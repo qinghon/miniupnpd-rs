@@ -7,6 +7,7 @@ use crate::options::{DEFAULT_MINISSDP_DSOCKET_PATH, Options};
 use crate::upnpglobalvars::*;
 use crate::upnphttp::MINIUPNPD_SERVER_STRING;
 use crate::upnputils::get_lan_for_peer;
+use crate::uuid::UUID;
 use crate::warp::{ip_is_ipv4_mapped, recv_from_if};
 use crate::{GETFLAG, error, warn};
 use once_cell::sync::OnceCell;
@@ -15,11 +16,10 @@ use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::os::fd::AsRawFd;
 use std::random::random;
+use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::Relaxed;
 use std::{io, mem};
-use std::rc::Rc;
-use crate::uuid::UUID;
 
 const VERSION_STR_MAP: [&str; 3] = ["", "1", "2"];
 const SSDP_PORT: u16 = 1900;
@@ -31,13 +31,10 @@ const GL_SSDP_MCAST_ADDR: Ipv6Addr = Ipv6Addr::new(0xff0e, 0, 0, 0, 0, 0, 0, 0xc
 fn AddMulticastMembership(lan: &lan_addr_s, socket: &Socket) -> io::Result<()> {
 	let interface = if lan.index != 0 {
 		socket2::InterfaceIndexOrAddress::Index(lan.index)
-	}else {
+	} else {
 		socket2::InterfaceIndexOrAddress::Address(lan.addr)
 	};
-	socket.join_multicast_v4_n(
-		&SSDP_MCAST_ADDR,
-		&interface,
-	)
+	socket.join_multicast_v4_n(&SSDP_MCAST_ADDR, &interface)
 }
 fn AddMulticastMembershipIPv6(socket: &Socket, ifindex: u32) -> io::Result<()> {
 	socket.join_multicast_v6(&LL_SSDP_MCAST_ADDR, ifindex)?;
@@ -123,11 +120,9 @@ pub fn OpenAndConfSSDPReceiveSocket(v: &Options, ipv6: bool) -> io::Result<Socke
 
 	let _ = socket.set_nonblocking(false);
 
-	if v.listening_ip.len() == 1 && ! v.listening_ip[0].ifname.is_empty() {
+	if v.listening_ip.len() == 1 && !v.listening_ip[0].ifname.is_empty() {
 		let _ = socket.bind_device(Some(v.listening_ip[0].ifname.as_bytes()));
 	}
-
-	
 
 	if ipv6 {
 		// lan_addr = lan_addrs.lh_first;
@@ -173,9 +168,9 @@ pub fn OpenAndConfSSDPReceiveSocket(v: &Options, ipv6: bool) -> io::Result<Socke
 		for lan in v.listening_ip.iter() {
 			if let Err(e) = AddMulticastMembership(lan, &socket) {
 				warn!(
-				"Failed to add multicast membership for interface {}: {}",
-				v.listening_ip[0].ifname, e
-			);
+					"Failed to add multicast membership for interface {}: {}",
+					v.listening_ip[0].ifname, e
+				);
 			}
 		}
 	}
@@ -197,12 +192,12 @@ fn OpenAndConfSSDPNotifySocket(lan_addr_s: &lan_addr_s) -> io::Result<Socket> {
 		warn!("setsockopt(udp_notify, SO_BROADCAST): {}", e);
 		return Err(e);
 	}
-	if ! lan_addr_s.ifname.is_empty() {
+	if !lan_addr_s.ifname.is_empty() {
 		if let Err(e) = socket.bind_device(Some(lan_addr_s.ifname.as_bytes())) {
-			warn!("setsockopt(udp6, SO_BINDTODEVICE, {}) : {}",socket.as_raw_fd(), e );
+			warn!("setsockopt(udp6, SO_BINDTODEVICE, {}) : {}", socket.as_raw_fd(), e);
 		}
 	}
-	
+
 	socket.bind(&socket2::SockAddr::from(SocketAddr::from((lan_addr_s.addr, 0))))?;
 
 	Ok(socket)
@@ -302,7 +297,7 @@ fn SendSSDPResponse(
 	let localtion_path = ROOTDESC_PATH;
 
 	let st_is_uuid = st.len() == 36;
-	
+
 	let bufr = format!(
 		"HTTP/1.1 200 OK\r\n\
 		CACHE-CONTROL: max-age=1800\r\n\
@@ -316,11 +311,7 @@ fn SendSSDPResponse(
 		01-NLS: {booid}\r\n\
 		BOOTID.UPNP.ORG: {booid}\r\n\
 		CONFIGID.UPNP.ORG: {upnp_configid}\r\n", /* UDA v1.1 */
-		if st_is_uuid {
-			""
-		}else {
-			"::"
-		}
+		if st_is_uuid { "" } else { "::" }
 	);
 	let r = sendto_schedule2(send_list, s, bufr.as_bytes(), 0, addr, None, delay);
 	debug!(
@@ -349,13 +340,10 @@ static known_service_types: &[server_type] = &[
 	server_type { s: "urn:schemas-upnp-org:device:WANDevice:", version: 2, uuid: &uuidvalue_wan },
 	#[cfg(feature = "igd2")]
 	server_type { s: "urn:schemas-upnp-org:service:WANIPConnection:", version: 2, uuid: &uuidvalue_wcd },
-
 	#[cfg(feature = "_dp_service")]
 	server_type { s: "urn:schemas-upnp-org:device:DeviceProtection:", version: 1, uuid: &uuidvalue_igd },
-
 	#[cfg(feature = "ipv6")]
 	server_type { s: "urn:schemas-upnp-org:service:WANIPv6FirewallControl:", version: 1, uuid: &uuidvalue_wcd },
-
 	#[cfg(not(feature = "igd2"))]
 	server_type { s: "urn:schemas-upnp-org:device:InternetGatewayDevice:", version: 1, uuid: &uuidvalue_igd },
 	#[cfg(not(feature = "igd2"))]
@@ -364,7 +352,6 @@ static known_service_types: &[server_type] = &[
 	server_type { s: "urn:schemas-upnp-org:device:WANDevice:", version: 1, uuid: &uuidvalue_wan },
 	#[cfg(not(feature = "igd2"))]
 	server_type { s: "urn:schemas-upnp-org:service:WANIPConnection:", version: 1, uuid: &uuidvalue_wcd },
-
 	server_type { s: "urn:schemas-upnp-org:service:WANCommonInterfaceConfig:", version: 1, uuid: &uuidvalue_wan },
 	/* We use WAN IP Connection, not PPP connection,
 	 * but buggy control points may try to use WanPPPConnection
@@ -557,7 +544,7 @@ pub fn ProcessSSDPData(
 		);
 		return;
 	}
-	if ! bufr.is_ascii() {
+	if !bufr.is_ascii() {
 		debug!("recv ssdp not ascii");
 		return;
 	}
@@ -569,7 +556,7 @@ pub fn ProcessSSDPData(
 		notice!("Unknown udp packet received from {}", sender);
 		return;
 	}
-	
+
 	let buf = unsafe { str::from_utf8_unchecked(bufr) };
 
 	let mut st_ver = 0;
@@ -595,7 +582,7 @@ pub fn ProcessSSDPData(
 				if let Some(mx_) = mx_s {
 					mx_value = mx_.parse::<i32>().unwrap_or(mx_value);
 				}
-				
+
 				debug!("MX: {} (ver={})", &line[3..], st_ver);
 			} else if line[0..4].eq_ignore_ascii_case("man:") {
 				// MAN: "ssdp:discover"\r\n
@@ -851,7 +838,10 @@ fn SendSSDPbyebye(
 	)
 }
 
-pub fn SendSSDPGoodbye(send_list: &mut Vec<crate::asyncsendto::scheduled_send>, sockets: &[Rc<Socket>]) -> io::Result<i32> {
+pub fn SendSSDPGoodbye(
+	send_list: &mut Vec<crate::asyncsendto::scheduled_send>,
+	sockets: &[Rc<Socket>],
+) -> io::Result<i32> {
 	let mut ok_cnt = 0;
 	for j in 0..sockets.len() {
 		let sockaddr = if j & 1 != 0 {

@@ -87,4 +87,3 @@ pub extern "C" fn getifstats(ifname: &str, data: &mut ifdata) -> c_int {
 
 	-1
 }
-

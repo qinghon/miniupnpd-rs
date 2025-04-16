@@ -1,5 +1,5 @@
 use crate::log;
-use crate::warp::{make_timeval, select, FdSet};
+use crate::warp::{FdSet, make_timeval, select};
 use crate::{error, warn};
 use libc::{c_int, c_uint};
 use socket2::Socket;
@@ -168,13 +168,7 @@ pub fn try_sendto(send_list: &mut Vec<scheduled_send>, writefds: &FdSet) -> i32 
 			elt.buf.len(),
 			elt.socket.as_raw_fd()
 		);
-		match send_from_to(
-			&elt.socket,
-			&elt.buf,
-			elt.flags,
-			elt.src_addr.as_ref(),
-			&elt.dest_addr,
-		) {
+		match send_from_to(&elt.socket, &elt.buf, elt.flags, elt.src_addr.as_ref(), &elt.dest_addr) {
 			Ok(n) => {
 				if n != elt.buf.len() {
 					warn!("try_sendto: {} bytes sent out of {}", n, elt.buf.len());
@@ -219,15 +213,9 @@ pub fn finalize_sendto(send_list: &mut Vec<scheduled_send>) {
 
 	while !send_list.is_empty() {
 		let mut idx = 0;
-		while idx < send_list.len()  {
+		while idx < send_list.len() {
 			let elt = send_list.get_mut(idx).unwrap();
-			match send_from_to(
-				&elt.socket,
-				&elt.buf,
-				elt.flags,
-				elt.src_addr.as_ref(),
-				&elt.dest_addr,
-			) {
+			match send_from_to(&elt.socket, &elt.buf, elt.flags, elt.src_addr.as_ref(), &elt.dest_addr) {
 				Ok(_) => {
 					send_list.swap_remove(idx);
 				}

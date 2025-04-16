@@ -5,8 +5,8 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 // use crate::debug;
 use crate::linux::getroute::get_src_for_route_to;
 use crate::options::Options;
-use crate::{TCP, UDP, UDPLITE};
 use crate::upnpglobalvars::{lan_addr_s, startup_time};
+use crate::{TCP, UDP, UDPLITE};
 
 pub fn get_lan_for_peer<'a>(v: &'a Options, peer: &SocketAddr) -> Option<&'a lan_addr_s> {
 	match peer {
@@ -51,9 +51,9 @@ pub fn upnp_gettimeofday() -> Instant {
 pub fn proto_atoi(protocol: &str) -> u8 {
 	if protocol.eq_ignore_ascii_case("UDP") {
 		UDP
-	}else if protocol.eq_ignore_ascii_case("UDPLITE") { 
+	} else if protocol.eq_ignore_ascii_case("UDPLITE") {
 		UDPLITE
-	}else { 
+	} else {
 		TCP
 	}
 }

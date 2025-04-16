@@ -1,5 +1,5 @@
-use std::time::Instant;
 use crate::OS;
+use std::time::Instant;
 
 pub struct solaris;
 

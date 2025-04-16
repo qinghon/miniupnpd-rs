@@ -353,8 +353,12 @@ fn parsePCPOption(pcp_buf: &[u8], remain: i32, pcp_msg_info: &mut pcp_info) -> i
 		PCP_OPTION_FLOW_PRIORITY => {
 			trace!("PCP OPTION: \t Flow priority\n");
 			if option_length != PCP_FLOW_PRIORITY_OPTION_SIZE as _ {
-				error!("PCP: Error processing DSCP. sizeof {} and remaining {}. flow len {} \n",
-				       PCP_FLOW_PRIORITY_OPTION_SIZE, remain, u16::from_be_bytes([pcp_buf[2], pcp_buf[3]]));
+				error!(
+					"PCP: Error processing DSCP. sizeof {} and remaining {}. flow len {} \n",
+					PCP_FLOW_PRIORITY_OPTION_SIZE,
+					remain,
+					u16::from_be_bytes([pcp_buf[2], pcp_buf[3]])
+				);
 				pcp_msg_info.result_code = PCP_ERR_MALFORMED_OPTION;
 				return 0;
 			}

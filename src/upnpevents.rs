@@ -64,8 +64,8 @@ use crate::miniupnpdpath::*;
 use crate::upnpdescgen::*;
 
 use crate::options::RtOptions;
-use event_state::*;
 use crate::uuid::UUID;
+use event_state::*;
 
 fn newSubscriber(eventurl: &str, callback: &str) -> Option<subscriber> {
 	if callback.is_empty() || eventurl.is_empty() {
@@ -82,7 +82,7 @@ fn newSubscriber(eventurl: &str, callback: &str) -> Option<subscriber> {
 		DP_EVENTURL => EDP,
 		_ => return None,
 	};
-	
+
 	let uuid = UUID::generate();
 	Some(subscriber {
 		notify: None,
@@ -197,46 +197,39 @@ fn upnp_event_notify_connect(obj: &mut upnp_event_notify) {
 
 	// skip "http://"
 	let p = &callback[7..];
-	
-	let parse_host = |host:&str| -> Option<SocketAddr> {
+
+	let parse_host = |host: &str| -> Option<SocketAddr> {
 		let port = 80;
 		let ipv6 = host.starts_with('[');
-		
-		if (ipv6 && host.ends_with(']')) || (
-			! ipv6 && host.rfind(':').is_none()
-			) {
+
+		if (ipv6 && host.ends_with(']')) || (!ipv6 && host.rfind(':').is_none()) {
 			if let Ok(addr) = IpAddr::from_str(host) {
 				Some(SocketAddr::new(addr, port))
-			}else {
+			} else {
 				None
 			}
-		}else if let Ok(addr) = SocketAddr::from_str(host) {
-  				return Some(addr);
-  			}else {
-  				return None;
-  			}
+		} else if let Ok(addr) = SocketAddr::from_str(host) {
+			return Some(addr);
+		} else {
+			return None;
+		}
 	};
-	
-	let (socket, path) = p.split_once('/').map(
-		|(host, path)| (parse_host(host), Some(path)), 
-	).unwrap_or_else(
-		||(parse_host(p), None),
-	);
+
+	let (socket, path) = p
+		.split_once('/')
+		.map(|(host, path)| (parse_host(host), Some(path)))
+		.unwrap_or_else(|| (parse_host(p), None));
 	if socket.is_none() {
 		obj.state = EError;
 		return;
 	}
 	let sock = socket.unwrap();
-	
+
 	obj.addrstr = sock;
-	obj.path = if let Some(p) = path {
-		Some(p.to_string())
-	}else { 
-		None
-	};
+	obj.path = if let Some(p) = path { Some(p.to_string()) } else { None };
 
 	debug!("upnp_event_notify_connect: '{}' '{}'", sock, path.unwrap_or_default());
-	
+
 	obj.state = EConnecting;
 	if let Err(e) = obj.s.connect(&sock.into()) {
 		if e.kind() != io::ErrorKind::WouldBlock {
@@ -301,10 +294,7 @@ fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
 	obj.state = ESending;
 }
 fn upnp_event_send(obj: &mut upnp_event_notify) {
-	debug!(
-		"upnp_event_send: sending event notify message to {}",
-		obj.addrstr
-	);
+	debug!("upnp_event_send: sending event notify message to {}", obj.addrstr);
 	debug!(
 		"upnp_event_send: msg: {}",
 		String::from_utf8_lossy(&obj.buffer[obj.sent as usize..])
@@ -370,10 +360,7 @@ fn upnp_event_process_notify(rt: &mut RtOptions, index: usize) {
 				}
 				Ok(Some(e)) => {
 					let obj = &mut rt.notify_list[index];
-					error!(
-						"upnp_event_process_notify: connect({}): {}",
-						obj.addrstr, e
-					);
+					error!("upnp_event_process_notify: connect({}): {}", obj.addrstr, e);
 					obj.state = EError;
 					return;
 				}

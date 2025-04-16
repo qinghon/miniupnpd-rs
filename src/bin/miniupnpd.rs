@@ -25,17 +25,17 @@ use miniupnpd_rs::upnpdescstrings::MINIUPNPD_VERSION;
 use miniupnpd_rs::upnpevents::subscriber_service_enum::*;
 use miniupnpd_rs::upnpevents::{upnp_event_var_change_notify, upnpevents_processfds, upnpevents_selectfds};
 use miniupnpd_rs::upnpglobalvars::*;
-use miniupnpd_rs::upnphttp::{upnphttp, ESendingAndClosing, EToDelete, EWaitingForHttpContent};
-use miniupnpd_rs::upnphttp::{New_upnphttp, Process_upnphttp, MINIUPNPD_SERVER_STRING};
+use miniupnpd_rs::upnphttp::{ESendingAndClosing, EToDelete, EWaitingForHttpContent, upnphttp};
+use miniupnpd_rs::upnphttp::{MINIUPNPD_SERVER_STRING, New_upnphttp, Process_upnphttp};
 use miniupnpd_rs::upnppinhole::upnp_clean_expired_pinholes;
 use miniupnpd_rs::upnpredirect::{get_upnp_rules_state_list, remove_unused_rules, rule_state};
 use miniupnpd_rs::upnpstun::perform_stun;
 use miniupnpd_rs::upnputils::{get_lan_for_peer, upnp_gettimeofday, upnp_time};
 use miniupnpd_rs::uuid::UUID;
-use miniupnpd_rs::warp::{make_timeval, select, sockaddr_to_v4, FdSet, IfName};
+use miniupnpd_rs::warp::{FdSet, IfName, make_timeval, select, sockaddr_to_v4};
 use miniupnpd_rs::*;
+use miniupnpd_rs::{Backend, OS, options};
 use miniupnpd_rs::{debug, error, info, nat_impl, notice};
-use miniupnpd_rs::{options, Backend, OS};
 use socket2::Socket;
 use std::cmp::max;
 use std::ffi::CStr;
@@ -216,14 +216,14 @@ fn ProcessIncomingHTTP<'a>(v: &Options, shttpl: &'a Socket, protocol: &str) -> i
 	let (shttp, clientaddr) = shttpl.accept()?;
 	let mut raddr = clientaddr.as_socket().unwrap();
 	match raddr.ip() {
-		IpAddr::V4(_) => {},
+		IpAddr::V4(_) => {}
 		IpAddr::V6(v) => {
 			if v.is_ipv4_mapped() {
 				raddr.set_ip(IpAddr::V4(v.to_ipv4().unwrap()))
 			}
 		}
 	}
-	
+
 	trace!("{} connection from {}", protocol, raddr);
 	if get_lan_for_peer(v, &raddr).is_some() {
 		Ok(New_upnphttp(shttp, raddr.ip()))
@@ -697,13 +697,13 @@ fn init(
 		SETFLAG!(*runtime_flags, SYSUPTIMEMASK);
 	}
 	if option.ext_ip.is_some() && rt.use_ext_ip_addr.is_none() {
-		rt.use_ext_ip_addr = option.ext_ip.map(|x|x.into());
+		rt.use_ext_ip_addr = option.ext_ip.map(|x| x.into());
 	}
 	let _ = serialnumber.set(option.serial.clone());
 	let _ = modelnumber.set(option.model_number.clone());
 	let _ = if let Some(persurl) = &option.presentation_url {
 		presentationurl.set(persurl.to_string())
-	}else {
+	} else {
 		presentationurl.set(format!("http://{}/", option.listening_ip[0].addr))
 	};
 
@@ -940,7 +940,7 @@ fn main() {
 			}
 		};
 
-		if ! GETFLAG!(runtime_flags, IPV6DISABLEDMASK) {
+		if !GETFLAG!(runtime_flags, IPV6DISABLEDMASK) {
 			match OpenAndConfSSDPReceiveSocket(&v, true) {
 				Ok(s) => sudpv6 = Some(Rc::new(s)),
 				Err(_) => {
@@ -949,7 +949,7 @@ fn main() {
 			}
 		}
 		match OpenAndConfSSDPNotifySockets(&v, runtime_flags) {
-			Ok(s) => snotify = s.into_iter().map(|x|Rc::new(x)).collect::<Vec<_>>(),
+			Ok(s) => snotify = s.into_iter().map(|x| Rc::new(x)).collect::<Vec<_>>(),
 			Err(_) => {
 				error!("Failed to open sockets for sending SSDP notify messages. EXITING");
 				return;
@@ -967,7 +967,7 @@ fn main() {
 			Err(e) => error!("Failed to open sockets for NAT-PMP/PCP.: {}", e),
 			Ok(socks) => {
 				notice!("Listening for NAT-PMP/PCP traffic on port {} ", NATPMP_PORT);
-				snatpmp = socks.into_iter().map(|x|Rc::new(x)).collect::<Vec<_>>();
+				snatpmp = socks.into_iter().map(|x| Rc::new(x)).collect::<Vec<_>>();
 			}
 		}
 	}
@@ -1124,7 +1124,7 @@ fn main() {
 				continue;
 			}
 			max_fd = max(max_fd, e.socket.as_raw_fd());
-			i+=1;
+			i += 1;
 		}
 		if i > 1 {
 			trace!("{} active incoming HTTP connections", i);
@@ -1196,7 +1196,14 @@ fn main() {
 						if lan_addr.is_none() {
 							warn!("NAT-PMP packet sender {} not from a LAN, ignoring", senderaddr);
 						} else {
-							ProcessIncomingNATPMPPacket(op, rt, &mut send_list, snatpmps, &msg_buff, sockaddr_to_v4(senderaddr));
+							ProcessIncomingNATPMPPacket(
+								op,
+								rt,
+								&mut send_list,
+								snatpmps,
+								&msg_buff,
+								sockaddr_to_v4(senderaddr),
+							);
 						}
 					} else {
 						ProcessIncomingPCPPacket(rt, snatpmps, &mut msg_buff[..n], &senderaddr, None);
@@ -1208,7 +1215,14 @@ fn main() {
 							warn!("NAT-PMP packet sender {} not from a LAN, ignoring", senderaddr);
 							continue;
 						}
-						ProcessIncomingNATPMPPacket(op, rt, &mut send_list, snatpmps, &msg_buff[..n], sockaddr_to_v4(senderaddr));
+						ProcessIncomingNATPMPPacket(
+							op,
+							rt,
+							&mut send_list,
+							snatpmps,
+							&msg_buff[..n],
+							sockaddr_to_v4(senderaddr),
+						);
 					}
 				}
 			}

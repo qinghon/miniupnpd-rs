@@ -25,7 +25,6 @@ pub struct rule_state {
 	pub to_remove: u8,
 }
 
-
 fn lease_file_add(iaddr: Ipv4Addr, eport: u16, iport: u16, proto: u8, desc: Option<&str>, timestamp: u32) -> i32 {
 	let lease_file = &global_option.get().unwrap().lease_file;
 	if lease_file.is_empty() {
@@ -62,7 +61,7 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 		Err(_) => return -1,
 	};
 	let tmpfilename = format!("{}XXXXXX", lease_file);
-	
+
 	let mut tmp = match fs::File::create(tmpfilename.as_str()) {
 		Ok(f) => f,
 		Err(_) => {
@@ -123,7 +122,7 @@ pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> io::Resul
 			Some(s) => s,
 			None => continue,
 		};
-		
+
 		let timestamp = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
 			Some(v) => v,
 			None => continue,

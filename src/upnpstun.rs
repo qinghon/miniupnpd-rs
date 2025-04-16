@@ -40,13 +40,7 @@ pub fn resolve_stun_host(stun_host: &str, stun_port: u16) -> io::Result<SocketAd
 
 	let mut addrs = (stun_host, stun_port).to_socket_addrs()?;
 
-	if let Some(SocketAddrV4) = addrs.find_map(|addr| {
-		if let SocketAddr::V4(v4) = addr {
-			Some(v4)
-		} else {
-			None
-		}
-	}) {
+	if let Some(SocketAddrV4) = addrs.find_map(|addr| if let SocketAddr::V4(v4) = addr { Some(v4) } else { None }) {
 		Ok(SocketAddrV4)
 	} else {
 		Err(io::ErrorKind::AddrNotAvailable.into())

@@ -317,7 +317,11 @@ fn AddPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 
 	ParseNameValue(h.get_req_str_from(h.req_contentoff), &mut data);
 	if data.l_head.is_empty() {
-		error!("cannot parse content: off={} '{}'", h.req_contentoff.0, h.get_req_str_from(h.req_contentoff));
+		error!(
+			"cannot parse content: off={} '{}'",
+			h.req_contentoff.0,
+			h.get_req_str_from(h.req_contentoff)
+		);
 	}
 	let int_ip = GetValueFromNameValueList(&data, "NewInternalClient").unwrap_or_default();
 

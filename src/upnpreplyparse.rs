@@ -159,7 +159,7 @@ mod tests {
 		assert_eq!(enable, Some("1"));
 		assert_eq!(desc, Some("Test port mapping entry from UPnPy."));
 		assert_eq!(lease, Some("0"));
-	}	
+	}
 	#[test]
 	fn test_parse_name_value1() {
 		let buffer = "<s:Envelope \

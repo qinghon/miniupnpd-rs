@@ -9,14 +9,14 @@
 )]
 #![allow(improper_ctypes)]
 
+use super::iptcrdr::iptc::*;
 use crate::netfilter::iptcrdr::*;
 use crate::{PinholeEntry, TCP, UDP, UDPLITE};
 use libc::{__errno_location, c_char};
 use std::ffi::{CStr, CString};
 use std::net::Ipv6Addr;
-use std::{mem, ptr};
 use std::rc::Rc;
-use super::iptcrdr::iptc::*;
+use std::{mem, ptr};
 
 pub(super) const IP6T_F_PROTO: u8 = 0x01;
 

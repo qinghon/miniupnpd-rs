@@ -66,8 +66,6 @@ macro_rules! GETFLAG {
 	};
 }
 
-
-
 pub static uuidvalue_igd: OnceCell<UUID> = OnceCell::new();
 pub static uuidvalue_wan: OnceCell<UUID> = OnceCell::new();
 pub static uuidvalue_wcd: OnceCell<UUID> = OnceCell::new();
@@ -113,4 +111,3 @@ pub const upnp_configid: u32 = 1337; /* CONFIGID.UPNP.ORG */
 pub static os_version: OnceCell<String> = OnceCell::new();
 
 pub static global_option: OnceCell<options::Options> = OnceCell::new();
-

@@ -1,3 +1,5 @@
+#[cfg(feature = "portinuse")]
+use super::portinuse::port_in_use;
 use crate::getifstats::ifdata;
 use crate::linux::getifstats::getifstats;
 use crate::*;
@@ -5,8 +7,6 @@ use crate::*;
 use std::net::Ipv4Addr;
 use std::os::fd::RawFd;
 use std::time::Duration;
-#[cfg(feature = "portinuse")]
-use super::portinuse::port_in_use;
 
 pub struct linux;
 

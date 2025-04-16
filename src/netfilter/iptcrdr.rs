@@ -37,8 +37,8 @@ use super::iptpinhole::*;
 use super::tiny_nf_nat::*;
 use crate::rdr_name_type::{self};
 use crate::upnputils::upnp_time;
-use crate::{error, Backend, FilterEntry};
-use crate::{log, PinholeEntry};
+use crate::{Backend, FilterEntry, error};
+use crate::{PinholeEntry, log};
 use crate::{RuleTable, TCP};
 use core::ffi;
 use libc::{__errno_location, c_char, c_int, c_uint};
@@ -439,7 +439,7 @@ impl Backend for iptable {
 				timestamp: timestamp as u64,
 				eport,
 				proto,
-				desc: desc.map(|x|Rc::from(x)),
+				desc: desc.map(|x| Rc::from(x)),
 			});
 
 			r = self.add_entry(

@@ -247,10 +247,15 @@ mod tests {
 				iport_max: 65535,
 				#[cfg(feature = "re")]
 				re: "".to_string(),
-			}
+			},
 		];
-		assert_eq!(check_upnp_rule_against_permissions(&perms, 1684, "192.168.1.2".parse().unwrap(), 1684, ""), true);
-		assert_eq!(check_upnp_rule_against_permissions(&perms, 1000, "192.168.1.2".parse().unwrap(), 1684, ""), false);
-		
+		assert_eq!(
+			check_upnp_rule_against_permissions(&perms, 1684, "192.168.1.2".parse().unwrap(), 1684, ""),
+			true
+		);
+		assert_eq!(
+			check_upnp_rule_against_permissions(&perms, 1000, "192.168.1.2".parse().unwrap(), 1684, ""),
+			false
+		);
 	}
 }

@@ -1,8 +1,8 @@
-
 use crate::getifaddr::{addr_is_reserved, getifaddr};
 use crate::upnpevents::{subscriber, upnp_event_notify};
-use crate::upnpglobalvars::{lan_addr_s};
+use crate::upnpglobalvars::lan_addr_s;
 pub use crate::upnppermissions::{read_permission_line, upnpperm};
+use crate::uuid::UUID;
 use crate::warp::IfName;
 use crate::{error, nat_impl, os};
 use std::cell::RefCell;
@@ -14,7 +14,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
-use crate::uuid::UUID;
 
 pub const DEFAULT_MINISSDP_DSOCKET_PATH: &'static str = "/var/run/minissdpd.sock";
 
@@ -106,7 +105,7 @@ pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str) -> i32 {
 			}
 		}
 	}
-	if ! addr_is_reserved(&lan_addr.addr) {
+	if !addr_is_reserved(&lan_addr.addr) {
 		println!("Error: LAN address contains public IP address : {}", lan_addr.addr);
 		println!("Public IP address can be configured via ext_ip= option");
 		println!("LAN address should contain private address, e.g. from 192.168. block");

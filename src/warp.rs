@@ -18,13 +18,13 @@ use std::{io, mem, ptr};
 pub struct FdSet(libc::fd_set);
 
 impl Default for FdSet {
-    fn default() -> Self {
-	    unsafe {
-		    let mut raw_fd_set = MaybeUninit::<libc::fd_set>::uninit();
-		    libc::FD_ZERO(raw_fd_set.as_mut_ptr());
-		    FdSet(raw_fd_set.assume_init())
-	    }
-    }
+	fn default() -> Self {
+		unsafe {
+			let mut raw_fd_set = MaybeUninit::<libc::fd_set>::uninit();
+			libc::FD_ZERO(raw_fd_set.as_mut_ptr());
+			FdSet(raw_fd_set.assume_init())
+		}
+	}
 }
 
 impl FdSet {
@@ -434,31 +434,28 @@ pub fn timestamp_to_instant(ts: u64) -> Instant {
 	}
 }
 
-
-
 macro_rules! impl_from_into {
-    ($source:ty, $target:ty) => {
-        impl From<$source> for $target {
-            #[inline]
-            fn from(value: $source) -> Self {
-                unsafe { std::mem::transmute(value) }
-            }
-        }
+	($source:ty, $target:ty) => {
+		impl From<$source> for $target {
+			#[inline]
+			fn from(value: $source) -> Self {
+				unsafe { std::mem::transmute(value) }
+			}
+		}
 
-        impl Into<$source> for $target {
-            #[inline]
-            fn into(self) -> $source {
-                unsafe { std::mem::transmute(self) }
-            }
-        }
-    }
+		impl Into<$source> for $target {
+			#[inline]
+			fn into(self) -> $source {
+				unsafe { std::mem::transmute(self) }
+			}
+		}
+	};
 }
 
 /// helper for bridge Ipv4Addr with in_addr using zerocopy
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Ip4Addr([u8; 4]);
-
 
 impl_from_into!(in_addr, Ip4Addr);
 impl_from_into!(Ipv4Addr, Ip4Addr);

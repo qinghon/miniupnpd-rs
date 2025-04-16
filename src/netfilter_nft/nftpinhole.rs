@@ -1,5 +1,5 @@
-use crate::Rc;
 use crate::PinholeEntry;
+use crate::Rc;
 use crate::netfilter_nft::nftnlrdr::nftable;
 use crate::netfilter_nft::nftnlrdr_misc::rule_t;
 use crate::netfilter_nft::nftnlrdr_misc::rule_type::RULE_FILTER;

@@ -52,7 +52,7 @@ pub struct nftable {
 }
 use super::nftnlrdr_misc::rule_chain_type::{RULE_CHAIN_FILTER, RULE_CHAIN_PEER, RULE_CHAIN_REDIRECT};
 use crate::netfilter_nft::nftnlrdr_misc::rule_type::{RULE_FILTER, RULE_NAT};
-use crate::netfilter_nft::nftpinhole::{parse_pinhole_desc, Nftable6Iter};
+use crate::netfilter_nft::nftpinhole::{Nftable6Iter, parse_pinhole_desc};
 use crate::upnputils::upnp_time;
 use rdr_name_type::*;
 
@@ -409,7 +409,9 @@ impl Backend for nftable {
 				.filter_rule
 				.iter()
 				.find(|r| r.dport == iport && r.daddr == iaddr && r.proto == proto && r.type_0 == RULE_FILTER);
-			if rule.is_some() && let Some(r) = rule_del_handle(rule.unwrap(), self.nft_nat_family) {
+			if rule.is_some()
+				&& let Some(r) = rule_del_handle(rule.unwrap(), self.nft_nat_family)
+			{
 				let _ = rule;
 				self.nft_send_rule(r, NFT_MSG_DELRULE, RULE_CHAIN_FILTER);
 			}

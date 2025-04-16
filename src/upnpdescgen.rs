@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 /* Event magical values codes */
-use crate::getconnstatus::{get_wan_connection_status_str};
+use crate::getconnstatus::get_wan_connection_status_str;
 use crate::getifaddr::{addr_is_reserved, getifaddr};
 
 use crate::miniupnpdpath::*;
@@ -28,7 +28,6 @@ const SYSTEMUPDATEID_MAGICALVALUE: MAGICALVALUE = 252;
 const PORTMAPPINGNUMBEROFENTRIES_MAGICALVALUE: MAGICALVALUE = 253;
 const EXTERNALIPADDRESS_MAGICALVALUE: MAGICALVALUE = 254;
 const DEFAULTCONNECTIONSERVICE_MAGICALVALUE: MAGICALVALUE = 255;
-
 
 struct XMLElt {
 	pub eltname: &'static str,

@@ -755,7 +755,11 @@ fn rule_expr_cb(e: &NftnlExpr, r: &mut rule_t) -> i32 {
 		if attr_name.is_null() {
 			return MNL_CB_OK as _;
 		}
-		trace!("parse expr: attr={} {:?} ", CStr::from_ptr(attr_name).to_str().unwrap_or(""), e);
+		trace!(
+			"parse expr: attr={} {:?} ",
+			CStr::from_ptr(attr_name).to_str().unwrap_or(""),
+			e
+		);
 		match CStr::from_ptr(attr_name).to_str().unwrap_or("") {
 			"cmp" => parse_rule_cmp(e, r),
 			"nat" => parse_rule_nat(e, r),

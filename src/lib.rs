@@ -46,8 +46,8 @@ pub mod upnpurns;
 pub mod upnputils;
 
 pub mod miniupnpdpath;
-pub mod warp;
 pub mod uuid;
+pub mod warp;
 
 pub const TCP: u8 = libc::IPPROTO_TCP as u8;
 pub const UDP: u8 = libc::IPPROTO_UDP as u8;
@@ -69,12 +69,12 @@ pub mod solaris {
 }
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub mod linux {
-	#[cfg(feature = "portinuse")]
-	mod portinuse;
 	mod getifstats;
 	pub mod getroute;
 	mod ifacewatcher;
 	mod os_impl;
+	#[cfg(feature = "portinuse")]
+	mod portinuse;
 	pub use os_impl::linux as os;
 }
 #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
@@ -83,7 +83,6 @@ pub mod bsd {
 	pub mod ifacewatcher;
 	pub use getifstats::bsd as os;
 	mod port_in_use;
-	
 }
 #[cfg(target_os = "macos")]
 pub mod mac {
@@ -305,7 +304,7 @@ pub trait Backend {
 	fn set_rdr_name(&mut self, param: rdr_name_type, name: &str) -> i32;
 
 	fn get_redir_chain_name(&self) -> &str;
-	
+
 	fn add_redirect_rule2(
 		&mut self,
 		ifname: &IfName,
