@@ -101,5 +101,5 @@ if real need , tell me I can roll back
 - [ ] `CHECK_PORTINUSE`
 - [ ] `V6SOCKETS_ARE_V6ONLY`
 - [ ] `ENABLE_HTTPS`
-- [ ] `ENABLE_NFQUEUE`
-- [ ] `USE_SYSTEMD`
+- [ ] `ENABLE_NFQUEUE`: when if real user need
+- [x] `USE_SYSTEMD`
