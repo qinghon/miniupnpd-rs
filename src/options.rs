@@ -299,7 +299,7 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str) -> bool {
 	true
 }
 
-pub fn readoptionsfile(fname: &Path, _debug_flag: i32) -> Result<Options, io::Error> {
+pub fn readoptionsfile(fname: &Path, _debug_flag: bool) -> Result<Options, io::Error> {
 	trace!("Reading configuration from file {:?}", fname);
 	let file = File::open(fname)?;
 

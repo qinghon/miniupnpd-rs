@@ -18,7 +18,6 @@ pub mod log;
 pub mod upnpglobalvars;
 
 pub mod asyncsendto;
-pub mod daemonize;
 pub mod getifaddr;
 pub mod getifstats;
 

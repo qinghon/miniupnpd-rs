@@ -492,3 +492,51 @@ pub fn upnpevents_processfds(rt: &mut RtOptions, readset: &mut FdSet, writeset: 
 		}
 	});
 }
+
+#[cfg(use_systemd="1")]
+mod systemd {
+	#![allow(
+		dead_code,
+		non_camel_case_types,
+		non_snake_case,
+		non_upper_case_globals,
+		unused_assignments,
+		unused_mut
+	)]
+	include!(concat!(env!("OUT_DIR"), "/libsystemd.rs"));
+}
+
+#[cfg(use_systemd="1")]
+pub fn upnp_update_status(rt: &mut RtOptions) {
+	use systemd::*;
+	use crate::getconnstatus::get_wan_connection_status_str;
+	use crate::getifaddr::{addr_is_reserved, getifaddr};
+	use crate::upnpglobalvars::global_option;
+	use crate::upnpredirect::upnp_get_portmapping_number_of_entries;
+	let op = global_option.get().unwrap();
+	let wan_ip =
+	if let Some(ext_ip) = rt.use_ext_ip_addr.as_ref() {
+		format!("{}", ext_ip)
+	}else {
+
+		let mut addr = Ipv4Addr::UNSPECIFIED;
+		if getifaddr(&op.ext_ifname, &mut addr, None) < 0 {
+			"(unknown)".to_string()
+		}else if addr_is_reserved(&addr) {
+			"invalid".to_string()
+		}else {
+			format!("{}", addr)
+		}
+	};
+
+	unsafe {
+		sd_notifyf(0,
+		           format!("STATUS={} on {}, IP: {}, active redirects: {}\n\0",
+		           get_wan_connection_status_str(&op.ext_ifname),
+		           op.ext_ifname,
+		           wan_ip,
+		           upnp_get_portmapping_number_of_entries(&rt.nat_impl)
+	).as_ptr() as _
+		);
+	}
+}

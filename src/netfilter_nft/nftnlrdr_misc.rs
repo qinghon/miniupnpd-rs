@@ -277,9 +277,9 @@ impl NftnlRule {
 	#[inline]
 	pub(super) fn add_expr(&mut self, expr: NftnlExpr) {
 		unsafe {
+			nftnl_rule_add_expr(self.0, expr.0);
 			mem::forget(expr);
 		}
-		unsafe { nftnl_rule_add_expr(self.0, expr.0) }
 	}
 	pub(super) fn nlmsg_parse(&mut self, nlmsg: *const nlmsghdr) -> i32 {
 		unsafe { nftnl_rule_nlmsg_parse(nlmsg, self.0) }

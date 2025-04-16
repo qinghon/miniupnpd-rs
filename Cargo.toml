@@ -46,6 +46,8 @@ pcp_flowp = ["pcp"]
 
 
 [lints.rust]
+
+# dynamic feature from build environment
 unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(fw, values("pf"))',
     'cfg(fw, values("iptables"))',
@@ -59,7 +61,8 @@ unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(use_getifaddrs, values("0"))',
     'cfg(use_getifaddrs, values("1"))',
     'cfg(uuid, values("native"))',
-    'cfg(uuid, values("libuuid"))'
+    'cfg(uuid, values("libuuid"))',
+    'cfg(use_systemd, values("1"))'
 ] }
 
 [profile.release]

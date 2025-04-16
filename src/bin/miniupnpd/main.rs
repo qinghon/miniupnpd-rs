@@ -1,17 +1,14 @@
 #![feature(random)]
 #![feature(ip)]
+#![feature(const_format_args)]
 #![allow(
-	dead_code,
-	mutable_transmutes,
 	non_camel_case_types,
 	non_snake_case,
 	non_upper_case_globals,
-	unused_assignments,
-	unused_mut
 )]
 
 use miniupnpd_rs::asyncsendto::*;
-use miniupnpd_rs::daemonize::checkforrunning;
+use daemonize::checkforrunning;
 use miniupnpd_rs::getifaddr::*;
 use miniupnpd_rs::log::setlogmask;
 use miniupnpd_rs::minissdp::*;
@@ -23,18 +20,18 @@ use miniupnpd_rs::pcpserver::*;
 use miniupnpd_rs::rdr_name_type::*;
 use miniupnpd_rs::upnpdescstrings::MINIUPNPD_VERSION;
 use miniupnpd_rs::upnpevents::subscriber_service_enum::*;
-use miniupnpd_rs::upnpevents::{upnp_event_var_change_notify, upnpevents_processfds, upnpevents_selectfds};
+use miniupnpd_rs::upnpevents::*;
 use miniupnpd_rs::upnpglobalvars::*;
-use miniupnpd_rs::upnphttp::{ESendingAndClosing, EToDelete, EWaitingForHttpContent, upnphttp};
-use miniupnpd_rs::upnphttp::{MINIUPNPD_SERVER_STRING, New_upnphttp, Process_upnphttp};
+use miniupnpd_rs::upnphttp::{upnphttp, ESendingAndClosing, EToDelete, EWaitingForHttpContent};
+use miniupnpd_rs::upnphttp::{New_upnphttp, Process_upnphttp, MINIUPNPD_SERVER_STRING};
 use miniupnpd_rs::upnppinhole::upnp_clean_expired_pinholes;
 use miniupnpd_rs::upnpredirect::{get_upnp_rules_state_list, remove_unused_rules, rule_state};
 use miniupnpd_rs::upnpstun::perform_stun;
 use miniupnpd_rs::upnputils::{get_lan_for_peer, upnp_gettimeofday, upnp_time};
 use miniupnpd_rs::uuid::UUID;
-use miniupnpd_rs::warp::{FdSet, IfName, make_timeval, select, sockaddr_to_v4};
+use miniupnpd_rs::warp::{make_timeval, select, sockaddr_to_v4, FdSet, IfName};
 use miniupnpd_rs::*;
-use miniupnpd_rs::{Backend, OS, options};
+use miniupnpd_rs::{options, Backend, OS};
 use miniupnpd_rs::{debug, error, info, nat_impl, notice};
 use socket2::Socket;
 use std::cmp::max;
@@ -51,21 +48,60 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::time::{Duration, Instant};
 use std::{fs, io, mem, ptr};
+use miniupnpd_rs::upnpevents::upnp_update_status;
+
+mod daemonize;
 
 const SYSTEM_OS: os = os::new();
 
-#[derive(Copy, Clone)]
+const DEF_CONF_FILE:&str = "/etc/miniupnpd/miniupnpd.conf";
+const DEF_PID_FILE:&str = "/var/run/miniupnpd.pid";
+
+#[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct runtime_vars {
-	pub port: i32,
+	// pub port: u16,
+	/// seconds between SSDP announces. Should be >= 900s
 	pub notify_interval: i32,
 	pub clean_ruleset_threshold: i32,
 	pub clean_ruleset_interval: i32,
+	#[cfg(use_systemd = "1")]
+	pub systemd_notify: bool,
 }
 
 static quitting: AtomicI32 = AtomicI32::new(0);
 
 pub static should_send_public_address_change_notif: AtomicBool = AtomicBool::new(false);
+
+#[cfg(use_systemd="1")]
+mod systemd {
+	#![allow(
+		dead_code,
+		non_camel_case_types,
+		non_snake_case,
+		non_upper_case_globals,
+		unused_assignments,
+		unused_mut
+	)]
+	include!(concat!(env!("OUT_DIR"), "/libsystemd.rs"));
+}
+
+#[cfg(use_systemd="1")]
+fn systemd_notify(rtv: &mut runtime_vars, status: &'static str) {
+	use systemd::*;
+	let ret = unsafe {
+		sd_notify(0,
+		          const_format_args!("STATUS=version {} {status}\n\0", MINIUPNPD_VERSION)
+			          .as_str().unwrap().as_ptr() as *const _
+		)
+	};
+	if ret > 0 {
+		rtv.systemd_notify = true;
+	}
+}
+#[cfg(not(use_systemd="1"))]
+fn systemd_notify(_rtv: &mut runtime_vars, _status: &'static str) {
+}
 
 #[cfg(cap_lib = "pledge")]
 fn drop_privilge() -> i32 {
@@ -84,6 +120,14 @@ fn drop_privilge() -> i32 {
 
 #[cfg(cap_lib = "cap")]
 mod cap {
+	#![allow(
+		dead_code,
+		non_camel_case_types,
+		non_snake_case,
+		non_upper_case_globals,
+		unused_assignments,
+		unused_mut
+	)]
 	include!(concat!(env!("OUT_DIR"), "/capability.rs"));
 }
 #[cfg(cap_lib = "cap")]
@@ -136,6 +180,14 @@ fn drop_privilege() -> i32 {
 
 #[cfg(cap_lib = "cap_ng")]
 mod capng {
+	#![allow(
+		dead_code,
+		non_camel_case_types,
+		non_snake_case,
+		non_upper_case_globals,
+		unused_assignments,
+		unused_mut
+	)]
 	include!(concat!(env!("OUT_DIR"), "/cap-ng.rs"));
 }
 
@@ -166,9 +218,32 @@ fn drop_privilege() -> i32 {
 	0
 }
 
+fn setup_signal_handle() -> i32 {
+	let mut sa: libc::sigaction = unsafe { mem::zeroed() };
+	sa.sa_sigaction = sigterm as usize;
+
+	if unsafe { libc::sigaction(libc::SIGTERM, &sa, ptr::null_mut()) } < 0 {
+		error!("Failed to set SIGTERM handler. EXITING");
+		return 1;
+	}
+	if unsafe { libc::sigaction(libc::SIGINT, &sa, ptr::null_mut()) } < 0 {
+		error!("Failed to set SIGINT handler. EXITING");
+		return 1;
+	}
+	sa.sa_sigaction = libc::SIG_IGN;
+	if unsafe { libc::sigaction(libc::SIGPIPE, &sa, ptr::null_mut()) } < 0 {
+		return 1;
+	}
+	sa.sa_sigaction = sigusr1 as usize;
+	if unsafe { libc::sigaction(libc::SIGUSR1, &sa, ptr::null_mut()) } < 0 {
+		return 1;
+	}
+	0
+}
+
 fn gen_current_notify_interval(notify_interval: u32) -> u32 {
 	if notify_interval > 65 {
-		let mut rand: u8 = random();
+		let rand: u8 = random();
 		(notify_interval - 1) - (rand & 0x3f) as u32
 	} else {
 		notify_interval
@@ -264,7 +339,7 @@ pub fn update_ext_ip_addr_from_stun(
 	port_forward: &mut bool,
 ) -> i32 {
 	let mut if_addr = Ipv4Addr::UNSPECIFIED;
-	let mut ext_addr;
+	let ext_addr;
 	let mut restrictive_nat: i32 = 0;
 	if v.ext_stun_host.is_none() {
 		return 0;
@@ -366,13 +441,11 @@ fn set_os_version() {
 }
 
 fn print_usage(pid_file: &str, config_file: &str) {
-	let exe_ = std::env::current_exe().unwrap();
-	let exe = exe_.to_str().unwrap();
 	eprintln!(
 		"Usage:
-    \t{exe} --version
-    \t{exe} --help
-    \t{exe} [-f config_file] [-i ext_ifname] [-I ext_ifname6] [-4] [-o ext_ip]
+    \tminiupnpd --version
+    \tminiupnpd --help
+    \tminiupnpd [-f config_file] [-i ext_ifname] [-I ext_ifname6] [-4] [-o ext_ip]
     \t\t[-a listening_ip] [-p port] [-d] [-v] [-U] [-S0] [-N]
     \t\t[-u uuid] [-s serial] [-m model_number]
     \t\t[-t notify_interval] [-P pid_filename]
@@ -403,23 +476,21 @@ fn print_usage(pid_file: &str, config_file: &str) {
     "
 	);
 }
-// #[inline(never)]
+
 fn init(
 	v: &mut Option<Options>,
-	// use_ext_ip_addr: &mut Option<Ipv4Addr>,
-	// nat: &mut impl Backend,
 	rt: &mut RtOptions,
+	rtv: &mut runtime_vars,
 	runtime_flags: &mut u32,
 	pidfilename: &mut String,
 ) -> i32 {
-	let mut pid: i32 = 0;
-	let mut debug_flag: i32 = 0;
+	
+	let mut debug_flag = false;
 	let mut verbosity_level: i32 = 0;
-	let mut openlog_option: i32 = 0;
-
-	// let mut presurl: *const libc::c_char = 0 as *const libc::c_char;
-	// let mut options_flag: i32 = 0;
-	let mut optionsfile = "/etc/miniupnpd/miniupnpd.conf";
+	let mut openlog_option ;
+	let mut systemd_flag= false;
+	
+	let mut optionsfile = DEF_CONF_FILE;
 
 	let args = std::env::args().collect::<Vec<String>>();
 	for i in 1..args.len() {
@@ -428,7 +499,8 @@ fn init(
 		}
 		match args[i].as_str() {
 			"-h" | "--help" => print_usage(pidfilename.as_str(), optionsfile),
-			"-d" => debug_flag = 1,
+			"-d" => debug_flag = true,
+			"-D" => systemd_flag = true,
 			"-f" => {
 				optionsfile = args[i + 1].as_str();
 			}
@@ -445,7 +517,7 @@ fn init(
 	}
 
 	openlog_option = libc::LOG_PID | libc::LOG_CONS;
-	if debug_flag != 0 {
+	if debug_flag {
 		openlog_option |= libc::LOG_PERROR;
 	}
 	log::openlog(c"miniupnpd", openlog_option, log::LOG_DAEMON);
@@ -725,16 +797,16 @@ fn init(
 		error!("Error: options ext_ip= and ext_perform_stun=yes cannot be specified together");
 		return -1;
 	}
-	if debug_flag != 0 {
-		pid = unsafe { libc::getpid() };
+	let pid= if debug_flag || systemd_flag {
+		unsafe { libc::getpid() }
 	} else {
 		if unsafe { libc::daemon(0, 0) } < 0 {
 			error!("daemon(): %m");
 		}
-		pid = unsafe { libc::getpid() };
-	}
+		unsafe { libc::getpid() }
+	};
 
-	if debug_flag == 0 {
+	if debug_flag {
 		match verbosity_level {
 			0 => {
 				setlogmask((1u32 << (log::LOG_NOTICE + 1)) - 1);
@@ -753,23 +825,8 @@ fn init(
 		return 1;
 	}
 	set_startup_time(*runtime_flags);
-	let mut sa: libc::sigaction = unsafe { mem::zeroed() };
-	sa.sa_sigaction = sigterm as usize;
-
-	if unsafe { libc::sigaction(libc::SIGTERM, &sa, ptr::null_mut()) } < 0 {
-		error!("Failed to set SIGTERM handler. EXITING");
-		return 1;
-	}
-	if unsafe { libc::sigaction(libc::SIGINT, &sa, ptr::null_mut()) } < 0 {
-		error!("Failed to set SIGINT handler. EXITING");
-		return 1;
-	}
-	sa.sa_sigaction = libc::SIG_IGN;
-	if unsafe { libc::sigaction(libc::SIGPIPE, &sa, ptr::null_mut()) } < 0 {
-		return 1;
-	}
-	sa.sa_sigaction = sigusr1 as usize;
-	if unsafe { libc::sigaction(libc::SIGUSR1, &sa, ptr::null_mut()) } < 0 {
+	
+	if setup_signal_handle() != 0 {
 		return 1;
 	}
 	if rt.nat_impl.init_redirect() < 0 {
@@ -780,6 +837,12 @@ fn init(
 	rt.nat_impl.init_iptpinhole();
 
 	let _ = daemonize::writepidfile(pidfilename.as_str(), pid);
+	
+	
+	if systemd_flag {
+		systemd_notify(rtv, "starting");
+	}
+	
 	info!("Reloading rules from lease file");
 	let _ = upnpredirect::reload_from_lease_file(rt, &option.lease_file);
 	let _ = upnppinhole::reload_from_lease_file6(&mut rt.nat_impl, &option.lease_file6);
@@ -800,29 +863,30 @@ fn main() {
 	let mut readset = FdSet::default();
 	let mut writeset = FdSet::default();
 	let start_instant = Instant::now();
-	let mut timeout = Duration::new(0, 0);
+	let mut timeout;
 
 	let mut lasttimeofday = Instant::now();
-	let mut current_notify_interval: u32 = 0;
+	let mut current_notify_interval ;
 	let mut max_fd: i32 = -1;
 
 	let mut rule_list: Vec<rule_state> = Vec::new();
 	let mut checktime: Instant = Instant::now();
 
-	let mut next_pinhole_ts: Instant = Instant::now();
+	let mut next_pinhole_ts ;
 	let mut op = None;
 	// let mut use_ext_ip_addr = None;
 	let mut runtime_flags = 0u32;
 	let mut disable_port_forwarding = false;
 	let mut send_list = Vec::new();
-	let mut NAT_IMPL: nat_impl = nat_impl::init();
+	let fw_impl: nat_impl = nat_impl::init();
 	let mut senderaddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
-	let mut pidfilename = "/var/run/miniupnpd.pid".to_string();
+	let mut pidfilename = DEF_PID_FILE.to_string();
+	let mut rtv = runtime_vars::default();
 	let mut rt_options = RtOptions {
 		use_ext_ip_addr: None,
 		disable_port_forwarding,
 		epoch_origin: Default::default(),
-		nat_impl: NAT_IMPL,
+		nat_impl: fw_impl,
 		nextruletoclean_timestamp: Instant::now(),
 		subscriber_list: vec![],
 		notify_list: vec![],
@@ -830,8 +894,8 @@ fn main() {
 	};
 	if init(
 		&mut op,
-		// &mut use_ext_ip_addr,
 		&mut rt_options,
+		&mut rtv,
 		&mut runtime_flags,
 		&mut pidfilename,
 	) != 0
@@ -895,7 +959,7 @@ fn main() {
 	set_os_version();
 
 	if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {
-		let mut listen_port: u16 = 0;
+		let mut listen_port: u16 ;
 		listen_port = if v.port > 0 { v.port } else { 0 };
 		shttpl = match OpenAndConfHTTPSocket(
 			&v,
@@ -985,6 +1049,12 @@ fn main() {
 	if drop_privilege() != 0 {
 		return;
 	}
+	#[cfg(use_systemd ="1")]
+	if rtv.systemd_notify {
+		upnp_update_status(rt);
+		systemd_notify(&mut rtv, "READY=1");
+	}
+	
 	while quitting.load(Relaxed) == 0 {
 		if upnp_bootid.load(Relaxed) < (60 * 60 * 24) && upnp_time() > Duration::from_secs(24 * 60 * 60) {
 			upnp_bootid.store(upnp_time().as_secs() as u32, Relaxed);
@@ -1008,7 +1078,7 @@ fn main() {
 					);
 					disable_port_forwarding = true;
 				} else {
-					let mut reserved = addr_is_reserved(&if_addr);
+					let reserved = addr_is_reserved(&if_addr);
 					if !disable_port_forwarding && reserved {
 						info!(
 							"Reserved / private IP address {} on ext interface {}: Port forwarding is impossible",
@@ -1129,7 +1199,7 @@ fn main() {
 		if i > 1 {
 			trace!("{} active incoming HTTP connections", i);
 		}
-		i = 0;
+		
 		for snatpmpd in &snatpmp {
 			readset.set(snatpmpd.as_raw_fd());
 			max_fd = max(max_fd, snatpmpd.as_raw_fd());
@@ -1280,9 +1350,25 @@ fn main() {
 			}
 
 			upnphttphead.retain(|x| x.state != EToDelete);
+			
+			#[cfg(use_systemd="1")]
+			{
+				if rtv.systemd_notify {
+					upnp_update_status(rt);
+				}
+			}
+			
 		}
 	}
 	notice!("shutting down MiniUPnPd");
+
+	#[cfg(use_systemd="1")]
+	{
+		if rtv.systemd_notify {
+			systemd_notify(&mut rtv, "shutting down\nSTOPPING=1");
+		}
+	}
+	
 	if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {
 		if let Err(e) = SendSSDPGoodbye(&mut send_list, snotify.as_slice()) {
 			error!("Failed to broadcast good-bye notifications: {}", e);

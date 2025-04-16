@@ -221,6 +221,38 @@ fn probe_libuuid() {
 		println!("cargo:rustc-cfg=uuid=\"native\"");
 	}
 }
+#[cfg(target_os = "linux")]
+fn probe_systemd() {
+	if env::var("USE_SYSTEMD") != Ok("1".to_string()) {
+		return;
+	}
+	let libsystemd = pkg_config::probe_library("libsystemd");
+	if libsystemd.is_err() {
+		return;
+	}
+	let libsystemd = libsystemd.unwrap();
+	for p in libsystemd.link_paths {
+		println!("cargo:rustc-link-search=native={}", p.display());
+	}
+	println!("cargo::rustc-link-lib=systemd");
+	const LIBSYSTEMD_FREFIX: &str = "^(SD|sd)_.+";
+	let bindings = bindgen::Builder::default()
+		.header_contents("wrapper.h", "#include <systemd/sd-daemon.h>")
+		.clang_args(libsystemd.include_paths.iter().map(|x| format!("-I{}", x.to_str().unwrap())))
+		.use_core()
+		.prepend_enum_name(false)
+		.allowlist_function(LIBSYSTEMD_FREFIX)
+		.allowlist_var(LIBSYSTEMD_FREFIX)
+		.allowlist_type(LIBSYSTEMD_FREFIX)
+		.ctypes_prefix("libc")
+		.rust_target(RustTarget::nightly())
+		.generate()
+		.expect("Couldn't generate bindings");
+	
+	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+	bindings.write_to_file(out_path.join("libsystemd.rs")).unwrap();
+	println!("cargo:rustc-cfg=use_systemd=\"1\"");
+}
 
 fn load_env() {
 	let script_path = "./configure";
@@ -282,6 +314,10 @@ fn main() {
 	println!("cargo:rustc-env=MINIUPNPD_DATE={date}");
 	println!("cargo:rerun-if-changed=configure");
 	println!("cargo:rerun-if-env-changed=EXT_ARGS");
+	println!("cargo:rerun-if-env-changed=HAS_LIBCAP_NG");
+	println!("cargo:rerun-if-env-changed=HAS_LIBCAP");
+	println!("cargo:rerun-if-env-changed=USE_GETIFADDRS");
+	println!("cargo:rerun-if-env-changed=USE_SYSTEMD");
 
 	if env::var("HAS_LIBCAP_NG") == Ok("1".into()) {
 		probe_cap_ng();
@@ -312,6 +348,9 @@ fn main() {
 	}
 	#[cfg(target_os = "linux")]
 	build_if_addr();
+	#[cfg(target_os = "linux")]
+	probe_systemd();
+
 	probe_libuuid();
 	let features = env::var("CARGO_FEATURE_EVENTS").map(|_| "events").unwrap_or_default().to_string()
 		+ env::var("CARGO_FEATURE_IGD2").map(|_| " igdv2").unwrap_or_default()
