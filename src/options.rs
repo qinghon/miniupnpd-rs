@@ -3,12 +3,11 @@ use crate::upnpevents::{subscriber, upnp_event_notify};
 use crate::upnpglobalvars::lan_addr_s;
 pub use crate::upnppermissions::{read_permission_line, upnpperm};
 use crate::uuid::UUID;
-use crate::warp::IfName;
+use crate::warp::{IfName, StackBufferReader};
 use crate::{error, nat_impl, os};
 use std::cell::RefCell;
 use std::fs::File;
 use std::io;
-use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -301,14 +300,19 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str) -> bool {
 
 pub fn readoptionsfile(fname: &Path, _debug_flag: bool) -> Result<Options, io::Error> {
 	trace!("Reading configuration from file {:?}", fname);
-	let file = File::open(fname)?;
-
-	let reader = BufReader::with_capacity(1024, file);
+	let mut file = File::open(fname)?;
+	
+	let mut buf = [0;1024];
+	let mut reader = StackBufferReader::new(&mut buf);
+	
 	let mut perms = vec![];
 	let mut option = Options::default();
 
-	for line in reader.lines() {
-		let line = line?;
+	while let Some(Ok(line_buf)) = reader.read_line(&mut file){
+		let line = match str::from_utf8(line_buf) {
+			Ok(v) => v,
+			Err(_) => continue,
+		};
 		if line.trim_start().is_empty() || line.trim_start().starts_with('#') {
 			continue;
 		}

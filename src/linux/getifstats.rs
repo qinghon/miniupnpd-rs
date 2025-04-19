@@ -1,9 +1,6 @@
 use crate::getifstats::ifdata;
-use crate::warp::IfName;
+use crate::warp::{IfName, StackBufferReader};
 use std::fs::File;
-use std::io;
-use std::io::BufRead;
-use std::path::Path;
 
 const BAUDRATE_DEFAULT: u64 = 4_200_000;
 
@@ -31,19 +28,26 @@ pub(super) fn getifstats(ifname: &IfName, data: &mut ifdata) -> i32 {
 	data.ipackets = 0;
 	data.opackets = 0;
 	data.baudrate = BAUDRATE_DEFAULT;
-
-	let path = Path::new("/proc/net/dev");
-	let file = match File::open(&path) {
+	
+	let mut file = match File::open("/proc/net/dev") {
 		Ok(f) => f,
 		Err(_) => return -1,
 	};
-	let reader = io::BufReader::new(file);
-
-	for line in reader.lines().skip(2) {
-		let line = match line {
-			Ok(l) => l,
-			Err(_) => return -1,
-		};
+	let mut buf = [0u8;512];
+	
+	let mut reader = StackBufferReader::new(&mut buf);
+	let mut count = 0;
+	while let Some(Ok(line_buf)) = reader.read_line(&mut file) {
+		// let line = match line {
+		// 	Ok(l) => l,
+		// 	Err(_) => return -1,
+		// };
+		count += 1;
+		if count < 2 {
+			continue;
+		}
+		let line = unsafe {str::from_utf8_unchecked(&line_buf)};
+		
 		let mut parts = line.split_whitespace();
 
 		if let Some(iface) = parts.next() {
@@ -61,10 +65,9 @@ pub(super) fn getifstats(ifname: &IfName, data: &mut ifdata) -> i32 {
 	}
 
 	let speed_path = format!("/sys/class/net/{}/speed", ifname);
-	if let Ok(file) = File::open(&speed_path) {
-		let mut reader = io::BufReader::new(file);
-		let mut line = String::new();
-		if reader.read_line(&mut line).is_ok() {
+	if let Ok(mut file) = File::open(&speed_path) {
+		if let Some(Ok(line)) = reader.read_line(&mut file) {
+			let line = unsafe { str::from_utf8_unchecked(line) };
 			if let Ok(speed) = line.trim().parse::<u64>() {
 				if speed > 0 && speed < 65535 {
 					data.baudrate = speed * 1_000_000;

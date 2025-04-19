@@ -8,12 +8,13 @@ use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
 use crate::{Backend, FilterEntry, OS, nat_impl};
 use std::fs;
 use std::fs::{File, remove_file};
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
+use crate::warp::StackBufferReader;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -56,7 +57,7 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let fd = match fs::File::open(lease_file) {
+	let mut fd = match fs::File::open(lease_file) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
@@ -70,16 +71,17 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 		}
 	};
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
-	let mut fdr = io::BufReader::new(fd);
-	let mut buf = String::with_capacity(512);
+	let mut buf = [0;512];
+	let mut fdr = StackBufferReader::new(&mut buf);
 	let str = format!("{}:{}", proto_itoa(proto), eport);
-	while let Ok(l) = fdr.read_line(&mut buf) {
-		if l == 0 {
-			break;
+	while let Some(Ok(l)) = fdr.read_line(&mut fd) {
+		if let Ok(line) = str::from_utf8(&l) {
+			if !line.starts_with(str.as_str()) {
+				let _ = tmp.write(line.as_bytes());
+				let _ = tmp.write(b"\n");
+			}
 		}
-		if !buf.starts_with(str.as_str()) {
-			let _ = tmp.write(buf.as_bytes());
-		}
+		
 	}
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
@@ -93,16 +95,22 @@ pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> io::Resul
 		return Err(io::ErrorKind::NotFound.into());
 	}
 
-	let file = File::open(lease_file)?;
+	let mut file = File::open(lease_file)?;
 
 	if remove_file(lease_file).is_err() {
 		eprintln!("Warning: Could not unlink file {}", lease_file);
 	}
 
 	let current_time = upnp_time().as_secs();
+	let mut buf = [0;512];
+	let mut fdr = StackBufferReader::new(&mut buf);
 
-	for line in io::BufReader::new(file).lines() {
-		let line = line?;
+	while let Some(line_buf) =  fdr.read_line(&mut file) {
+		let line = str::from_utf8(line_buf?);
+		if line.is_err() {
+			continue;
+		}
+		let line = line.unwrap();
 		println!("Parsing lease file line '{}'", line);
 
 		let mut parts = line.split(':');

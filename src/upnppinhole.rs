@@ -1,8 +1,9 @@
 use crate::upnpglobalvars::global_option;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
-use crate::{Backend, PinholeEntry, nat_impl};
-use std::fs::{File, remove_file};
-use std::io::{BufRead, Write};
+use crate::warp::StackBufferReader;
+use crate::{nat_impl, Backend, PinholeEntry};
+use std::fs::{remove_file, File};
+use std::io::{Write};
 use std::net::Ipv6Addr;
 use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
@@ -14,16 +15,23 @@ pub fn reload_from_lease_file6(nat: &mut nat_impl, lease_file6: &str) -> io::Res
 		return Err(io::ErrorKind::NotFound.into());
 	}
 
-	let file = File::open(lease_file6)?;
+	let mut file = File::open(lease_file6)?;
 
 	if remove_file(lease_file6).is_err() {
 		eprintln!("Warning: Could not unlink file {}", lease_file6);
 	}
 
 	let current_time = upnp_time().as_secs();
-
-	for line in io::BufReader::new(file).lines() {
-		let line = line?;
+	let mut buf = [0;512];
+	let mut fdr = StackBufferReader::new(&mut buf);
+	
+	while let Some(line_buf) =  fdr.read_line(&mut file) {
+		let line = str::from_utf8(line_buf?);
+		if line.is_err() {
+			continue;
+		}
+		let line = line.unwrap();
+		
 		println!("Parsing lease file line '{}'", line);
 
 		let mut parts = line.split(';');
@@ -152,7 +160,7 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let fd = match fs::File::open(lease_file) {
+	let mut fd = match fs::File::open(lease_file) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
@@ -173,15 +181,16 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 	};
 
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
-	let mut fdr = io::BufReader::new(fd);
-	let mut buf = String::with_capacity(128);
+	let mut buf = [0;128];
+	let mut fdr = StackBufferReader::new(&mut buf );
+	// let mut buf = String::with_capacity(128);
 	let uid_str = format!("{}", uid);
-	loop {
-		match fdr.read_line(&mut buf) {
-			Ok(l) => {
-				if l == 0 {
-					break;
-				}
+	while let Some(Ok(line_buf)) = fdr.read_line(&mut fd) {
+			if let Ok(buf) = str::from_utf8(line_buf) {
+				
+				// if l == 0 {
+				// 	break;
+				// }
 				if buf.trim().is_empty() {
 					continue;
 				}
@@ -233,8 +242,6 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 					);
 				}
 			}
-			Err(_) => break,
-		}
 	}
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
@@ -248,7 +255,7 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let fd = match fs::File::open(lease_file) {
+	let mut fd = match fs::File::open(lease_file) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
@@ -263,18 +270,14 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 	};
 
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
-	let mut fdr = io::BufReader::new(fd);
-	let mut buf = String::with_capacity(128);
+	let mut buf = [0;128];
+	let mut fdr = StackBufferReader::new(&mut buf);
 	let uid_str = format!("{}", uid);
 
 	let prefix_str = format!("{};{};{}", proto_itoa(proto), int_client, int_port);
 
-	loop {
-		match fdr.read_line(&mut buf) {
-			Ok(l) => {
-				if l == 0 {
-					break;
-				}
+	while let Some(Ok(line_buf)) = fdr.read_line(&mut fd) {
+		if let Ok(buf) = str::from_utf8(line_buf) {
 				if buf.trim().is_empty() {
 					continue;
 				}
@@ -326,8 +329,6 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 					let _ = write!(tmp, "{}\n", buf.as_str());
 				}
 			}
-			Err(_) => break,
-		}
 	}
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
@@ -342,7 +343,7 @@ pub fn lease_file6_expire() -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let fd = match fs::File::open(lease_file) {
+	let mut fd = match fs::File::open(lease_file) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
@@ -357,17 +358,13 @@ pub fn lease_file6_expire() -> i32 {
 	};
 
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
-	let mut fdr = io::BufReader::new(fd);
-	let mut buf = String::with_capacity(128);
+	let mut buf = [0;128];
+	let mut fdr = StackBufferReader::new(&mut buf);
 
 	let current_unix_time = upnp_time().as_secs();
 
-	loop {
-		match fdr.read_line(&mut buf) {
-			Ok(l) => {
-				if l == 0 {
-					break;
-				}
+	while let Some(Ok(line_buf)) = fdr.read_line(&mut fd) {
+		if let Ok(buf) = str::from_utf8(line_buf) {
 				if buf.trim().is_empty() {
 					continue;
 				}
@@ -422,8 +419,6 @@ pub fn lease_file6_expire() -> i32 {
 					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}\n"
 				);
 			}
-			Err(_) => break,
-		}
 	}
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file) {

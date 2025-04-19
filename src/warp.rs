@@ -14,6 +14,7 @@ use std::os::unix::io::RawFd;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use std::{io, mem, ptr};
+use std::io::Read;
 
 pub struct FdSet(libc::fd_set);
 
@@ -468,6 +469,85 @@ impl<'a> From<&'a Ipv4Addr> for &'a Ip4Addr {
 	}
 }
 
+/// replace [io::BufRead], the BufRead always alloc 8K heap buffer,
+/// mostly we only need read small string ,
+/// this is wapper for file read on stack
+pub struct StackBufferReader<'a> {
+	buf: &'a mut [u8],
+	pos: u16,
+	cap: u16,
+	use_pos: u16,
+	ended: bool,
+}
+
+impl<'a> StackBufferReader<'a> {
+	pub fn new(buf: &'a mut [u8]) -> Self {
+		let cap = buf.len() as u16;
+		Self {
+			buf,
+			pos: 0,
+			cap,
+			use_pos: 0,
+			ended: false,
+		}
+	}
+	
+	pub fn read_line(&mut self, reader: &mut impl Read) -> Option<io::Result<&[u8]>> {
+		loop {
+			if self.use_pos < self.pos {
+				if let Some(offset) = self.buf[self.use_pos as usize..self.pos as usize].iter().position(|&c| c == b'\n') {
+					let cur_pos = self.use_pos;
+					self.use_pos += offset as u16 + 1; // move and skip "\n"
+					if offset == 0 {
+						continue;
+					}
+					return Some(Ok::<&[u8], io::Error>(&self.buf[cur_pos as usize..cur_pos as usize + offset]));
+				} else if self.ended {
+					let cur_pos = self.use_pos;
+					self.use_pos = self.pos;
+					return Some(Ok(&self.buf[cur_pos as usize..self.pos as usize]));
+				}
+			}
+			if self.use_pos == self.pos && self.ended {
+				self.use_pos = 0;
+				self.pos = 0;
+				self.ended = false;
+				return None;
+			}
+			if self.use_pos < self.pos && self.pos == self.cap {
+				let len = self.pos - self.use_pos;
+				let buf_p = self.buf.as_mut_ptr();
+				// move data to start of buffer
+				unsafe { ptr::copy(buf_p.add(self.use_pos as usize), buf_p, len as usize) };
+				self.use_pos = 0;
+				self.pos = len;
+			}
+			if ! self.ended {
+				if self.use_pos == self.pos && self.pos == self.cap {
+					self.pos = 0;
+					self.use_pos = 0;
+				}
+				let cap = self.cap - self.pos;
+				if cap == 0 && self.use_pos == 0{
+					return Some(Err(io::ErrorKind::OutOfMemory.into()));
+				}
+				let len = match reader.read(&mut self.buf[self.pos as usize..]) {
+					Ok(len) => len,
+					Err(e) => return Some(Err(e)),
+				};
+				self.pos += len as u16;
+				if len == 0 || cap != len as u16 {
+					self.ended = true;
+				}
+				continue;
+			}
+
+		}
+	}
+}
+
+
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -481,5 +561,25 @@ mod tests {
 		assert_eq!(ifname.as_str(), "eth0");
 		assert_eq!(ifname.as_str().len(), ifname.len());
 		assert!(IfName::from_str("ifname").is_ok());
+	}
+	#[test]
+	fn test_read_line() {
+		let mut cursor = io::Cursor::new(b"hello\nworld\n");
+
+		let mut buf = [0u8;128];
+		let mut reader = StackBufferReader::new(&mut buf);
+
+		assert_eq!(reader.read_line(&mut cursor).unwrap().unwrap(), b"hello");
+		assert_eq!(reader.read_line(&mut cursor).unwrap().unwrap(), b"world");
+		assert!(reader.read_line(&mut cursor).is_none());
+	}
+
+	#[test]
+	fn test_read_line_empty() {
+		let mut cursor = io::Cursor::new(b"\n\n\n\n\n");
+
+		let mut buf = [0u8;128];
+		let mut reader = StackBufferReader::new(&mut buf);
+		assert!(reader.read_line(&mut cursor).is_none());
 	}
 }
