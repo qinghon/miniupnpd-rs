@@ -10,7 +10,7 @@ pub struct upnpperm {
 	pub mask: Ipv4Addr,
 	pub iport_min: u16,
 	pub iport_max: u16,
-	#[cfg(feature = "re")]
+	#[cfg(feature = "regex")]
 	pub re: String,
 }
 #[repr(C)]
@@ -67,7 +67,7 @@ impl FromStr for upnpperm {
 					mask: ipmask.netmask(),
 					iport_min,
 					iport_max,
-					#[cfg(feature = "re")]
+					#[cfg(feature = "regex")]
 					re: "".to_string(),
 				};
 				trace!("perm rule added: {:?}", r);
@@ -195,7 +195,7 @@ mod tests {
 				mask: Ipv4Addr::UNSPECIFIED,
 				iport_min: 1024,
 				iport_max: 65535,
-				#[cfg(feature = "re")]
+				#[cfg(feature = "regex")]
 				re: "".to_string(),
 			}
 		);
@@ -209,7 +209,7 @@ mod tests {
 				mask: Ipv4Addr::UNSPECIFIED,
 				iport_min: 0,
 				iport_max: 65535,
-				#[cfg(feature = "re")]
+				#[cfg(feature = "regex")]
 				re: "".to_string(),
 			}
 		);
@@ -234,7 +234,7 @@ mod tests {
 				mask: Ipv4Addr::UNSPECIFIED,
 				iport_min: 0,
 				iport_max: 65535,
-				#[cfg(feature = "re")]
+				#[cfg(feature = "regex")]
 				re: "".to_string(),
 			},
 			upnpperm {
@@ -245,7 +245,7 @@ mod tests {
 				mask: Ipv4Addr::UNSPECIFIED,
 				iport_min: 0,
 				iport_max: 65535,
-				#[cfg(feature = "re")]
+				#[cfg(feature = "regex")]
 				re: "".to_string(),
 			},
 		];

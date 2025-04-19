@@ -91,6 +91,7 @@ if real need , tell me I can roll back
 - `USE_DAEMON`: use dynamic flag
 - `ENABLE_LEASEFILE`: force enabled
 - `ENABLE_L3F_SERVICE`: force enabled
+- `USE_TIME_AS_BOOTID`: force enabled
 
 
 ### Not yet supported
@@ -98,8 +99,12 @@ if real need , tell me I can roll back
 - [ ] `ENABLE_GETIFSTATS_CACHING`
 - [ ] `GETIFSTATS_CACHING_DURATION`
 - [ ] `LEASEFILE_USE_REMAINING_TIME`
-- [ ] `CHECK_PORTINUSE`
+- [x] `CHECK_PORTINUSE`
 - [ ] `V6SOCKETS_ARE_V6ONLY`
 - [ ] `ENABLE_HTTPS`
 - [ ] `ENABLE_NFQUEUE`: when if real user need
 - [x] `USE_SYSTEMD`
+- [ ] `PF_SET_DST_ADDR`
+- [ ] `MULTIPLE_EXTERNAL_IP`: need full refactor
+- [ ] `ENABLE_REGEX`
+- [ ] `USE_IFNAME_IN_RULES`

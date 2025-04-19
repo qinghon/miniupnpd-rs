@@ -14,8 +14,6 @@ use miniupnpd_rs::log::setlogmask;
 use miniupnpd_rs::minissdp::*;
 use miniupnpd_rs::natpmp::*;
 use miniupnpd_rs::options::*;
-#[cfg(feature = "ipv6")]
-use miniupnpd_rs::pcpserver::OpenAndConfPCPv6Socket;
 use miniupnpd_rs::pcpserver::*;
 use miniupnpd_rs::rdr_name_type::*;
 use miniupnpd_rs::upnpdescstrings::MINIUPNPD_VERSION;
@@ -48,6 +46,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::time::{Duration, Instant};
 use std::{fs, io, mem, ptr};
+#[cfg(use_systemd="1")]
 use miniupnpd_rs::upnpevents::upnp_update_status;
 
 mod daemonize;
