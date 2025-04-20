@@ -900,9 +900,9 @@ pub fn SubmitServicesToMiniSSDPD(v: &Options, host: Ipv4Addr, port: u16) -> io::
 		if idx != 0 {
 			buf.extend_from_slice(VERSION_STR_MAP[st.version as usize].as_bytes());
 		}
-		buf.extend_from_slice(format!("uuid:{}::{}{}", st.uuid.get().unwrap(), st.s, st.version).as_bytes());
+		buf.write_fmt(format_args!("uuid:{}::{}{}", st.uuid.get().unwrap(), st.s, st.version)).unwrap();
 		buf.extend_from_slice(os_version.get().unwrap().as_bytes());
-		buf.extend_from_slice(format!("http://{}:{}{}", host, port, ROOTDESC_PATH).as_bytes());
+		buf.write_fmt(format_args!("http://{}:{}{}", host, port, ROOTDESC_PATH)).unwrap();
 		if let Err(e) = s.write(&buf) {
 			if e.kind() == io::ErrorKind::Interrupted {
 				continue;

@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 /* Event magical values codes */
+use std::fmt::Write;
 use crate::getconnstatus::get_wan_connection_status_str;
 use crate::getifaddr::{addr_is_reserved, getifaddr};
 
@@ -670,7 +671,7 @@ fn genXML(p: &[XMLElt], force_igd1: bool) -> String {
 
 				if eltname.starts_with("root ") {
 					result.push_str(" configId=\"");
-					result.push_str(&upnp_configid.to_string());
+					result.write_fmt(const_format_args!("{}", upnp_configid)).unwrap();
 					result.push('"');
 				}
 
@@ -696,8 +697,8 @@ pub fn genRootDesc(force_igd1: bool) -> String {
 }
 
 fn genServiceDesc(s: &serviceDesc, force_igd1: bool) -> String {
-	let mut result = String::from(xmlver);
-	// *len = xmlver.len() as i32;
+	let mut result = String::with_capacity(2048);
+	result.push_str(xmlver);
 
 	let acts = s.actionList;
 	let vars = s.serviceStateTable;
@@ -708,7 +709,11 @@ fn genServiceDesc(s: &serviceDesc, force_igd1: bool) -> String {
 	result.push('>');
 
 	// 添加版本信息
-	result.push_str("<specVersion><major>1</major><minor>0</minor></specVersion>");
+	result.push_str("<specVersion><major>");
+	result.push_str(UPNP_VERSION_MAJOR_STR);
+	result.push_str("</major><minor>");
+	result.push_str(UPNP_VERSION_MINOR_STR);
+	result.push_str("</minor></specVersion>");
 
 	// 处理 actionList
 	result.push_str("<actionList>");
@@ -739,7 +744,6 @@ fn genServiceDesc(s: &serviceDesc, force_igd1: bool) -> String {
 				let var_name = vars[arg.relatedVar as usize].name;
 
 				if (arg.dir & NAME_INDEX_MASK) != 0 {
-					// 使用魔法值名称
 					result.push_str(magicargname[((arg.dir & NAME_INDEX_MASK) >> 2) as usize]);
 				} else if var_name.starts_with("PortMapping")
 					&& !(var_name.len() >= 22 && var_name[11..22] == *"Description")
@@ -817,9 +821,9 @@ fn genServiceDesc(s: &serviceDesc, force_igd1: bool) -> String {
 			} else {
 				// ui2 和 ui4 类型
 				result.push_str("<allowedValueRange><minimum>");
-				result.push_str(&upnpallowedranges[var.iallowedlist as usize].to_string());
+				result.write_fmt(const_format_args!("{}", upnpallowedranges[var.iallowedlist as usize])).unwrap();
 				result.push_str("</minimum><maximum>");
-				result.push_str(&upnpallowedranges[var.iallowedlist as usize + 1].to_string());
+				result.write_fmt(const_format_args!("{}", upnpallowedranges[var.iallowedlist as usize + 1])).unwrap();
 				result.push_str("</maximum></allowedValueRange>");
 			}
 		}
@@ -900,13 +904,12 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 				}
 
 				PORTMAPPINGNUMBEROFENTRIES_MAGICALVALUE => {
-					result.push_str(&upnp_get_portmapping_number_of_entries(&rt.nat_impl).to_string());
+					result.write_fmt(format_args!("{}", upnp_get_portmapping_number_of_entries(&rt.nat_impl))).unwrap();
 				}
 
 				EXTERNALIPADDRESS_MAGICALVALUE => {
-					// let rt = global_option.get().unwrap();
 					if let Some(ext_ip) = &rt.use_ext_ip_addr {
-						result.push_str(&ext_ip.to_string());
+						result.write_fmt(format_args!("{}", ext_ip)).unwrap();
 					} else {
 						let op = global_option.get().unwrap();
 						let ext_if_name = &op.ext_ifname;
@@ -915,7 +918,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 							if addr_is_reserved(&addr) {
 								result.push_str("0.0.0.0");
 							} else {
-								result.push_str(&addr.to_string());
+								result.write_fmt(format_args!("{}", addr)).unwrap();
 							}
 						} else {
 							result.push_str("0.0.0.0");
@@ -924,7 +927,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 				}
 
 				DEFAULTCONNECTIONSERVICE_MAGICALVALUE => {
-					result.push_str(&uuidvalue_wcd.get().unwrap().to_string());
+					result.write_fmt(format_args!("{}", uuidvalue_wcd.get().unwrap())).unwrap();
 					#[cfg(feature = "igd2")]
 					result.push_str(":WANConnectionDevice:2,urn:upnp-org:serviceId:WANIPConn1");
 					#[cfg(not(feature = "igd2"))]

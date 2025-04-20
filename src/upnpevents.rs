@@ -33,7 +33,7 @@ pub struct subscriber {
 	pub seq: u32,
 	pub service: subscriber_service_enum,
 	pub uuid: UUID,
-	pub callback: String,
+	pub callback: Rc<str>,
 }
 
 pub struct upnp_event_notify {
@@ -90,7 +90,7 @@ fn newSubscriber(eventurl: &str, callback: &str) -> Option<subscriber> {
 		seq: 0,
 		service: state,
 		uuid,
-		callback: callback.to_string(),
+		callback: Rc::from(""),
 	})
 }
 
