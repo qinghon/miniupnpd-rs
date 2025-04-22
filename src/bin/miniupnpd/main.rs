@@ -46,7 +46,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::time::{Duration, Instant};
 use std::{fs, io, mem, ptr};
-#[cfg(use_systemd="1")]
+#[cfg(use_systemd)]
 use miniupnpd_rs::upnpevents::upnp_update_status;
 
 mod daemonize;
@@ -64,7 +64,7 @@ pub struct runtime_vars {
 	pub notify_interval: i32,
 	pub clean_ruleset_threshold: i32,
 	pub clean_ruleset_interval: i32,
-	#[cfg(use_systemd = "1")]
+	#[cfg(use_systemd)]
 	pub systemd_notify: bool,
 }
 
@@ -72,7 +72,7 @@ static quitting: AtomicI32 = AtomicI32::new(0);
 
 pub static should_send_public_address_change_notif: AtomicBool = AtomicBool::new(false);
 
-#[cfg(use_systemd="1")]
+#[cfg(use_systemd)]
 mod systemd {
 	#![allow(
 		dead_code,
@@ -85,7 +85,7 @@ mod systemd {
 	include!(concat!(env!("OUT_DIR"), "/libsystemd.rs"));
 }
 
-#[cfg(use_systemd="1")]
+#[cfg(use_systemd)]
 fn systemd_notify(rtv: &mut runtime_vars, status: &'static str) {
 	use systemd::*;
 	let ret = unsafe {
@@ -98,7 +98,7 @@ fn systemd_notify(rtv: &mut runtime_vars, status: &'static str) {
 		rtv.systemd_notify = true;
 	}
 }
-#[cfg(not(use_systemd="1"))]
+#[cfg(not(use_systemd))]
 fn systemd_notify(_rtv: &mut runtime_vars, _status: &'static str) {
 }
 
@@ -1350,7 +1350,7 @@ fn main() {
 
 			upnphttphead.retain(|x| x.state != EToDelete);
 			
-			#[cfg(use_systemd="1")]
+			#[cfg(use_systemd)]
 			{
 				if rtv.systemd_notify {
 					upnp_update_status(rt);
@@ -1361,7 +1361,7 @@ fn main() {
 	}
 	notice!("shutting down MiniUPnPd");
 
-	#[cfg(use_systemd="1")]
+	#[cfg(use_systemd)]
 	{
 		if rtv.systemd_notify {
 			systemd_notify(&mut rtv, "shutting down\nSTOPPING=1");

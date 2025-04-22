@@ -493,7 +493,7 @@ pub fn upnpevents_processfds(rt: &mut RtOptions, readset: &mut FdSet, writeset: 
 	});
 }
 
-#[cfg(use_systemd="1")]
+#[cfg(use_systemd)]
 mod systemd {
 	#![allow(
 		dead_code,
@@ -506,7 +506,7 @@ mod systemd {
 	include!(concat!(env!("OUT_DIR"), "/libsystemd.rs"));
 }
 
-#[cfg(use_systemd="1")]
+#[cfg(use_systemd)]
 pub fn upnp_update_status(rt: &mut RtOptions) {
 	use systemd::*;
 	use crate::getconnstatus::get_wan_connection_status_str;

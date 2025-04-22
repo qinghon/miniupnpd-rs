@@ -23,7 +23,7 @@ pub struct ReservedAddr {
 	pub addr: Ipv4Addr,
 	pub rmask: u32,
 }
-#[cfg(use_getifaddrs = "0")]
+#[cfg(not(use_getifaddrs))]
 pub fn getifaddr(ifname: &IfName, addr: &mut Ipv4Addr, mask: Option<&mut Ipv4Addr>) -> i32 {
 	use libc::{SIOCGIFFLAGS, SIOCGIFNETMASK, ifreq, ioctl, sockaddr, sockaddr_in, socket, strncpy};
 	if ifname.is_empty() {
@@ -150,7 +150,7 @@ impl<'a> Iterator for IfaddrIter<'a> {
 	}
 }
 
-#[cfg(use_getifaddrs = "1")]
+#[cfg(use_getifaddrs)]
 pub fn getifaddr(ifname: &IfName, addr: &mut Ipv4Addr, mask: Option<&mut Ipv4Addr>) -> i32 {
 	if let Some(iter) = IfaddrIter::new() {
 		for ifaddr in iter {
@@ -265,7 +265,7 @@ mod tests {
 		}
 	}
 	#[test]
-	#[cfg(use_getifaddrs = "0")]
+	#[cfg(not(use_getifaddrs))]
 	fn test_getifaddr() {
 		let mut addr = Ipv4Addr::new(0, 0, 0, 0);
 		assert_eq!(getifaddr(&IfName::from_str("lo").unwrap(), &mut addr, None), 0);

@@ -58,11 +58,10 @@ unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(cap_lib, values("cap"))',
     'cfg(cap_lib, values("pledge"))',
     'cfg(cap_lib, values("none"))',
-    'cfg(use_getifaddrs, values("0"))',
-    'cfg(use_getifaddrs, values("1"))',
+    'cfg(use_getifaddrs)',
     'cfg(uuid, values("native"))',
     'cfg(uuid, values("libuuid"))',
-    'cfg(use_systemd, values("1"))'
+    'cfg(use_systemd)'
 ] }
 
 [profile.release]

@@ -251,7 +251,7 @@ fn probe_systemd() {
 	
 	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 	bindings.write_to_file(out_path.join("libsystemd.rs")).unwrap();
-	println!("cargo:rustc-cfg=use_systemd=\"1\"");
+	println!("cargo:rustc-cfg=use_systemd");
 }
 
 fn load_env() {
@@ -328,9 +328,7 @@ fn main() {
 	}
 	let use_getifaaddrs = env::var("USE_GETIFADDRS").unwrap_or("0".to_string());
 	if use_getifaaddrs == "1" {
-		println!("cargo:rustc-cfg=use_getifaddrs=\"1\"");
-	} else {
-		println!("cargo:rustc-cfg=use_getifaddrs=\"0\"");
+		println!("cargo:rustc-cfg=use_getifaddrs");
 	}
 
 	match fw.as_str() {
