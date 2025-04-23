@@ -5,7 +5,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 use uuid::UUID;
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[repr(C)]
 pub struct lan_addr_s {
 	pub ifname: IfName,
@@ -86,7 +86,7 @@ pub static ipv6_bind_addr: Ipv6Addr = Ipv6Addr::UNSPECIFIED;
 /// The field value of the BOOTID.UPNP.ORG header field MUST be increased
 /// each time a device (re)joins the network and sends an initial announce
 /// (a "reboot" in UPnP terms), or adds a UPnP-enabled interface.
-/// 
+///
 /// Unless the device explicitly announces a change in the BOOTID.UPNP.ORG
 /// field value using an SSDP message, as long as the device remains
 /// continuously available in the network, the same BOOTID.UPNP.ORG field
@@ -98,7 +98,7 @@ pub static upnp_bootid: AtomicU32 = AtomicU32::new(1); /* BOOTID.UPNP.ORG */
 /// current set of device and service descriptions; control points can
 /// parse this header field to detect whether they need to send new
 /// description query messages.
-/// 
+///
 /// UPnP 1.1 devices MAY freely assign configid numbers from 0 to
 /// 16777215 (2^24-1). Higher numbers are reserved for future use, and
 /// can be assigned by the Technical Committee. The configuration of a

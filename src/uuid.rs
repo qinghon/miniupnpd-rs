@@ -11,7 +11,7 @@ unsafe extern "C" {
 	pub(super) fn uuid_generate(out: *mut u8);
 }
 
-#[derive(Copy, Clone, Default, Eq, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Debug)]
 #[repr(C)]
 pub struct UUID(pub [u8; 16]);
 

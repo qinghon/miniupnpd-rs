@@ -1,19 +1,9 @@
-#[cfg(feature = "https")]
-pub enum SSL {}
-#[cfg(feature = "https")]
-enum Cert {}
-
-#[cfg(feature = "https")]
-unsafe extern "C" {
-	fn SSL_get_peer_certificate(ssl: *mut SSL) -> *mut Cert;
-}
-
-use std::fmt::Write;
 #[cfg(not(feature = "multiple_ext_ip"))]
 use crate::getifaddr::addr_is_reserved;
 use crate::getifaddr::getifaddr;
 use crate::getifstats::ifdata;
 use crate::upnphttp::{BuildHeader_upnphttp, BuildResp2_upnphttp, SendRespAndClose_upnphttp, upnphttp};
+use std::fmt::Write;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::random::random;
 
@@ -846,7 +836,11 @@ fn GetListOfPortMappings(h: &mut upnphttp, action: &str, ns: &str) {
 	let rt = h.rt_options.as_ref().unwrap();
 
 	let mut body = String::with_capacity(4096);
-	body.write_fmt(format_args!("<u:{}Response xmlns:u=\"{}\"><NewPortListing><![CDATA[", action, ns)).unwrap();
+	body.write_fmt(format_args!(
+		"<u:{}Response xmlns:u=\"{}\"><NewPortListing><![CDATA[",
+		action, ns
+	))
+	.unwrap();
 
 	body.push_str(list_start);
 	let proto = proto_atoi(protocol.unwrap());
@@ -1477,10 +1471,13 @@ fn GetAssignedRoles(h: &mut upnphttp, action: &str, ns: &str) {
 
 	#[cfg(feature = "https")]
 	{
-		if let Some(ssl) = &h.ssl {
-			let peer_cert = unsafe { SSL_get_peer_certificate(*ssl) };
+		use openssl_sys::SSL_get1_peer_certificate;
+		use openssl_sys::X509_free;
+		if ! h.ssl.is_none() {
+			let peer_cert = unsafe { SSL_get1_peer_certificate(h.ssl.as_ptr()) };
 			if !peer_cert.is_null() {
 				role_list = "Admin Basic"; // Update role list based on client certificate
+				unsafe { X509_free(peer_cert) };
 			}
 		}
 	}

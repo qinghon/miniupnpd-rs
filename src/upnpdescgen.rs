@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 /* Event magical values codes */
-use std::fmt::Write;
 use crate::getconnstatus::get_wan_connection_status_str;
 use crate::getifaddr::{addr_is_reserved, getifaddr};
+use std::fmt::Write;
 
 use crate::miniupnpdpath::*;
 use crate::options::RtOptions;
@@ -823,7 +823,12 @@ fn genServiceDesc(s: &serviceDesc, force_igd1: bool) -> String {
 				result.push_str("<allowedValueRange><minimum>");
 				result.write_fmt(const_format_args!("{}", upnpallowedranges[var.iallowedlist as usize])).unwrap();
 				result.push_str("</minimum><maximum>");
-				result.write_fmt(const_format_args!("{}", upnpallowedranges[var.iallowedlist as usize + 1])).unwrap();
+				result
+					.write_fmt(const_format_args!(
+						"{}",
+						upnpallowedranges[var.iallowedlist as usize + 1]
+					))
+					.unwrap();
 				result.push_str("</maximum></allowedValueRange>");
 			}
 		}

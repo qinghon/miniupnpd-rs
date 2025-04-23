@@ -84,14 +84,7 @@ fn newSubscriber(eventurl: &str, callback: &str) -> Option<subscriber> {
 	};
 
 	let uuid = UUID::generate();
-	Some(subscriber {
-		notify: None,
-		timeout: Instant::now(),
-		seq: 0,
-		service: state,
-		uuid,
-		callback: Rc::from(""),
-	})
+	Some(subscriber { notify: None, timeout: Instant::now(), seq: 0, service: state, uuid, callback: Rc::from("") })
 }
 
 pub fn upnpevents_addSubscriber<'a>(
@@ -508,35 +501,36 @@ mod systemd {
 
 #[cfg(use_systemd)]
 pub fn upnp_update_status(rt: &mut RtOptions) {
-	use systemd::*;
 	use crate::getconnstatus::get_wan_connection_status_str;
 	use crate::getifaddr::{addr_is_reserved, getifaddr};
 	use crate::upnpglobalvars::global_option;
 	use crate::upnpredirect::upnp_get_portmapping_number_of_entries;
+	use systemd::*;
 	let op = global_option.get().unwrap();
-	let wan_ip =
-	if let Some(ext_ip) = rt.use_ext_ip_addr.as_ref() {
+	let wan_ip = if let Some(ext_ip) = rt.use_ext_ip_addr.as_ref() {
 		format!("{}", ext_ip)
-	}else {
-
+	} else {
 		let mut addr = Ipv4Addr::UNSPECIFIED;
 		if getifaddr(&op.ext_ifname, &mut addr, None) < 0 {
 			"(unknown)".to_string()
-		}else if addr_is_reserved(&addr) {
+		} else if addr_is_reserved(&addr) {
 			"invalid".to_string()
-		}else {
+		} else {
 			format!("{}", addr)
 		}
 	};
 
 	unsafe {
-		sd_notifyf(0,
-		           format!("STATUS={} on {}, IP: {}, active redirects: {}\n\0",
-		           get_wan_connection_status_str(&op.ext_ifname),
-		           op.ext_ifname,
-		           wan_ip,
-		           upnp_get_portmapping_number_of_entries(&rt.nat_impl)
-	).as_ptr() as _
+		sd_notifyf(
+			0,
+			format!(
+				"STATUS={} on {}, IP: {}, active redirects: {}\n\0",
+				get_wan_connection_status_str(&op.ext_ifname),
+				op.ext_ifname,
+				wan_ip,
+				upnp_get_portmapping_number_of_entries(&rt.nat_impl)
+			)
+			.as_ptr() as _,
 		);
 	}
 }

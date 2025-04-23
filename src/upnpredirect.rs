@@ -5,6 +5,7 @@ use crate::upnpevents::upnp_event_var_change_notify;
 use crate::upnpglobalvars::global_option;
 use crate::upnppermissions::check_upnp_rule_against_permissions;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
+use crate::warp::StackBufferReader;
 use crate::{Backend, FilterEntry, OS, nat_impl};
 use std::fs;
 use std::fs::{File, remove_file};
@@ -14,7 +15,6 @@ use std::ops::Add;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
-use crate::warp::StackBufferReader;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -71,7 +71,7 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 		}
 	};
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
-	let mut buf = [0;512];
+	let mut buf = [0; 512];
 	let mut fdr = StackBufferReader::new(&mut buf);
 	let str = format!("{}:{}", proto_itoa(proto), eport);
 	while let Some(Ok(l)) = fdr.read_line(&mut fd) {
@@ -81,7 +81,6 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 				let _ = tmp.write(b"\n");
 			}
 		}
-		
 	}
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
@@ -102,10 +101,10 @@ pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> io::Resul
 	}
 
 	let current_time = upnp_time().as_secs();
-	let mut buf = [0;512];
+	let mut buf = [0; 512];
 	let mut fdr = StackBufferReader::new(&mut buf);
 
-	while let Some(line_buf) =  fdr.read_line(&mut file) {
+	while let Some(line_buf) = fdr.read_line(&mut file) {
 		let line = str::from_utf8(line_buf?);
 		if line.is_err() {
 			continue;

@@ -28,13 +28,13 @@ pub(super) fn getifstats(ifname: &IfName, data: &mut ifdata) -> i32 {
 	data.ipackets = 0;
 	data.opackets = 0;
 	data.baudrate = BAUDRATE_DEFAULT;
-	
+
 	let mut file = match File::open("/proc/net/dev") {
 		Ok(f) => f,
 		Err(_) => return -1,
 	};
-	let mut buf = [0u8;512];
-	
+	let mut buf = [0u8; 512];
+
 	let mut reader = StackBufferReader::new(&mut buf);
 	let mut count = 0;
 	while let Some(Ok(line_buf)) = reader.read_line(&mut file) {
@@ -46,8 +46,8 @@ pub(super) fn getifstats(ifname: &IfName, data: &mut ifdata) -> i32 {
 		if count < 2 {
 			continue;
 		}
-		let line = unsafe {str::from_utf8_unchecked(&line_buf)};
-		
+		let line = unsafe { str::from_utf8_unchecked(&line_buf) };
+
 		let mut parts = line.split_whitespace();
 
 		if let Some(iface) = parts.next() {

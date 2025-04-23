@@ -248,7 +248,7 @@ fn probe_systemd() {
 		.rust_target(RustTarget::nightly())
 		.generate()
 		.expect("Couldn't generate bindings");
-	
+
 	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 	bindings.write_to_file(out_path.join("libsystemd.rs")).unwrap();
 	println!("cargo:rustc-cfg=use_systemd");

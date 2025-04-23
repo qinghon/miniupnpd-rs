@@ -5,6 +5,7 @@ use libc::{c_int, c_uint, in_addr};
 use std::cmp::min;
 use std::ffi::CStr;
 use std::fmt::{Display, Formatter};
+use std::io::Read;
 use std::mem::MaybeUninit;
 #[cfg(feature = "ipv6")]
 use std::net::Ipv6Addr;
@@ -14,7 +15,6 @@ use std::os::unix::io::RawFd;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use std::{io, mem, ptr};
-use std::io::Read;
 
 pub struct FdSet(libc::fd_set);
 
@@ -483,25 +483,23 @@ pub struct StackBufferReader<'a> {
 impl<'a> StackBufferReader<'a> {
 	pub fn new(buf: &'a mut [u8]) -> Self {
 		let cap = buf.len() as u16;
-		Self {
-			buf,
-			pos: 0,
-			cap,
-			use_pos: 0,
-			ended: false,
-		}
+		Self { buf, pos: 0, cap, use_pos: 0, ended: false }
 	}
-	
+
 	pub fn read_line(&mut self, reader: &mut impl Read) -> Option<io::Result<&[u8]>> {
 		loop {
 			if self.use_pos < self.pos {
-				if let Some(offset) = self.buf[self.use_pos as usize..self.pos as usize].iter().position(|&c| c == b'\n') {
+				if let Some(offset) =
+					self.buf[self.use_pos as usize..self.pos as usize].iter().position(|&c| c == b'\n')
+				{
 					let cur_pos = self.use_pos;
 					self.use_pos += offset as u16 + 1; // move and skip "\n"
 					if offset == 0 {
 						continue;
 					}
-					return Some(Ok::<&[u8], io::Error>(&self.buf[cur_pos as usize..cur_pos as usize + offset]));
+					return Some(Ok::<&[u8], io::Error>(
+						&self.buf[cur_pos as usize..cur_pos as usize + offset],
+					));
 				} else if self.ended {
 					let cur_pos = self.use_pos;
 					self.use_pos = self.pos;
@@ -522,13 +520,13 @@ impl<'a> StackBufferReader<'a> {
 				self.use_pos = 0;
 				self.pos = len;
 			}
-			if ! self.ended {
+			if !self.ended {
 				if self.use_pos == self.pos && self.pos == self.cap {
 					self.pos = 0;
 					self.use_pos = 0;
 				}
 				let cap = self.cap - self.pos;
-				if cap == 0 && self.use_pos == 0{
+				if cap == 0 && self.use_pos == 0 {
 					return Some(Err(io::ErrorKind::OutOfMemory.into()));
 				}
 				let len = match reader.read(&mut self.buf[self.pos as usize..]) {
@@ -541,12 +539,9 @@ impl<'a> StackBufferReader<'a> {
 				}
 				continue;
 			}
-
 		}
 	}
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -566,7 +561,7 @@ mod tests {
 	fn test_read_line() {
 		let mut cursor = io::Cursor::new(b"hello\nworld\n");
 
-		let mut buf = [0u8;128];
+		let mut buf = [0u8; 128];
 		let mut reader = StackBufferReader::new(&mut buf);
 
 		assert_eq!(reader.read_line(&mut cursor).unwrap().unwrap(), b"hello");
@@ -578,7 +573,7 @@ mod tests {
 	fn test_read_line_empty() {
 		let mut cursor = io::Cursor::new(b"\n\n\n\n\n");
 
-		let mut buf = [0u8;128];
+		let mut buf = [0u8; 128];
 		let mut reader = StackBufferReader::new(&mut buf);
 		assert!(reader.read_line(&mut cursor).is_none());
 	}

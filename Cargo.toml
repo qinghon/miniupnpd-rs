@@ -23,13 +23,15 @@ libc = "0.2"
 once_cell = "1.21"
 socket2 = { version = "0.5.8", features = ["all"] }
 
+# mainline openssl-sys not export some constants, ssl_ctx init depend 
+openssl-sys = {git = "https://github.com/qinghon/rust-openssl.git", optional = true , features = ["bindgen"]}
 
 [features]
 default = ["igd2", "events", "ipv6", "strict"]
 pcp = []
 pcp_peer = ["pcp"]
 igd2 = []
-https = ["igd2"]
+https = ["igd2", "openssl-sys"]
 ipv6 = []
 strict = []
 portinuse = []
@@ -90,7 +92,9 @@ pkg-config = {version = "0"}
 [build-dependencies.bindgen]
 version = "0.71"
 git = "https://github.com/rust-lang/rust-bindgen.git"
-branch = "main"
+#branch = "main"
+rev = "e098882ca416721778214ed536d76005760aafad"
+
 
 [patch.crates-io]
 clang-sys = {git = "https://github.com/KyleMayes/clang-sys.git", tag = "v1.9.0"}

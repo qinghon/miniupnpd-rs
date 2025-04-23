@@ -7,45 +7,57 @@
 	unused_assignments,
 	unused_mut
 )]
-
 use crate::miniupnpdpath::*;
-use crate::options::RtOptions;
+use crate::options::*;
 use crate::upnpdescgen::*;
 use crate::upnpevents::{upnpevents_addSubscriber, upnpevents_removeSubscriber, upnpevents_renewSubscription};
 use crate::upnpglobalvars::{FORCEIGDDESCV1MASK, global_option, os_version};
 use crate::upnpsoap::ExecuteSoapAction;
-#[cfg(feature = "https")]
-use crate::upnpsoap::SSL;
 use crate::{GETFLAG, debug, info, log};
 use crate::{error, notice, warn};
 use once_cell::sync::OnceCell;
 use socket2::Socket;
+#[cfg(feature = "https")]
+use std::ffi::{CStr, c_int};
 use std::io::ErrorKind;
-use std::mem;
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::{io, mem};
+
 use std::str::FromStr;
+
+#[cfg(feature = "https")]
+use openssl_sys::{
+	CONF_modules_unload, ERR_error_string, ERR_get_error, OPENSSL_INIT_LOAD_SSL_STRINGS, OPENSSL_VERSION,
+	OPENSSL_init_ssl, OpenSSL_version, SSL, SSL_CTX, SSL_CTX_check_private_key, SSL_CTX_free, SSL_CTX_new,
+	SSL_CTX_set_verify, SSL_CTX_use_PrivateKey_file, SSL_CTX_use_certificate_file, SSL_ERROR_WANT_READ,
+	SSL_ERROR_WANT_WRITE, SSL_FILETYPE_PEM, SSL_VERIFY_NONE, SSL_accept, SSL_free, SSL_new, SSL_read, SSL_set_fd,
+	TLS_server_method, X509_STORE_CTX,
+};
+use openssl_sys::{SSL_get_error, SSL_write};
+#[cfg(feature = "https")]
+use std::ptr::NonNull;
 
 pub static MINIUPNPD_SERVER_STRING: OnceCell<String> = OnceCell::new();
 
 use crate::upnpdescstrings::OS_NAME;
 use crate::uuid::UUID;
-/* Include the "Timeout:" header in response */
+/// Include the "Timeout:" header in response
 const FLAG_TIMEOUT: u32 = 0x01;
-/* Include the "SID:" header in response */
+/// Include the "SID:" header in response
 const FLAG_SID: u32 = 0x02;
 
-/* If set, the POST request included a "Expect: 100-continue" header */
+/// If set, the POST request included a "Expect: 100-continue" header
 const FLAG_CONTINUE: u32 = 0x40;
 
-/* If set, the Content-Type is set to text/xml, otherwise it is text/xml */
+/// If set, the Content-Type is set to text/xml, otherwise it is text/xml
 const FLAG_HTML: u32 = 0x80;
 
-/* If set, the corresponding Allow: header is set */
+/// If set, the corresponding Allow: header is set
 const FLAG_ALLOW_POST: u32 = 0x100;
 const FLAG_ALLOW_SUB_UNSUB: u32 = 0x200;
 
-/* If set, the User-Agent: contains "microsoft" */
+/// If set, the User-Agent: contains "microsoft"
 const FLAG_MS_CLIENT: u32 = 0x400;
 
 pub type httpStates = u32;
@@ -113,6 +125,37 @@ impl From<u32> for OffLen {
 	}
 }
 
+#[derive(Default)]
+#[repr(transparent)]
+#[cfg(feature = "https")]
+pub struct Raw_SSL(pub Option<NonNull<SSL>>);
+#[cfg(feature = "https")]
+impl Drop for Raw_SSL {
+	fn drop(&mut self) {
+		if self.0.is_none() {
+			return;
+		}
+		unsafe {
+			SSL_free(self.0.unwrap().as_ptr());
+		}
+	}
+}
+#[cfg(feature = "https")]
+impl Raw_SSL {
+	#[inline]
+	pub fn is_none(&self) -> bool {
+		self.0.is_none()
+	}
+	#[inline]
+	pub fn as_ptr(&self) -> *const SSL {
+		self.0.as_ref().unwrap().as_ptr()
+	}
+	#[inline]
+	pub fn as_mut_ptr(&mut self) -> *mut SSL {
+		self.0.as_mut().unwrap().as_ptr()
+	}
+}
+
 pub struct upnphttp<'a> {
 	pub socket: Socket,
 	pub clientaddr: IpAddr,
@@ -144,7 +187,7 @@ pub struct upnphttp<'a> {
 	pub res_sent: i32,
 	pub rt_options: Option<&'a mut RtOptions>,
 	#[cfg(feature = "https")]
-	pub ssl: Option<*mut SSL>,
+	pub ssl: Raw_SSL,
 }
 impl upnphttp<'_> {
 	pub fn get_req_str_from(&self, off: OffLen) -> &str {
@@ -159,6 +202,40 @@ impl upnphttp<'_> {
 					buf_len as usize,
 				))
 			}
+		}
+	}
+	fn recv(&mut self, buf: &mut [MaybeUninit<u8>]) -> io::Result<usize> {
+		#[cfg(feature = "https")]
+		if self.ssl.is_none() {
+			self.socket.recv(buf)
+		} else {
+			let n = unsafe { SSL_read(self.ssl.as_mut_ptr(), buf.as_mut_ptr() as _, buf.len() as _) };
+			if n < 0 {
+				Err(io::Error::last_os_error())
+			} else {
+				Ok(n as usize)
+			}
+		}
+		#[cfg(not(feature = "https"))]
+		{
+			self.socket.recv(buf)
+		}
+	}
+	fn send(&self, buf: &[u8]) -> io::Result<usize> {
+		#[cfg(feature = "https")]
+		if self.ssl.is_none() {
+			self.socket.send(buf)
+		} else {
+			let n = unsafe { SSL_write(self.ssl.as_ptr().cast_mut(), buf.as_ptr() as _, buf.len() as _) };
+			if n < 0 {
+				Err(io::Error::last_os_error())
+			} else {
+				Ok(n as usize)
+			}
+		}
+		#[cfg(not(feature = "https"))]
+		{
+			self.socket.send(buf)
 		}
 	}
 }
@@ -203,8 +280,124 @@ pub fn New_upnphttp<'a>(mut s: Socket, peeraddr: IpAddr) -> upnphttp<'a> {
 		res_sent: 0,
 		rt_options: None,
 		#[cfg(feature = "https")]
-		ssl: None,
+		ssl: Default::default(),
 	}
+}
+#[cfg(feature = "https")]
+fn syslogsslerr() {
+	let mut buf = [0; 256];
+	unsafe {
+		while let err = ERR_get_error()
+			&& err != 0
+		{
+			let c = CStr::from_ptr(ERR_error_string(err, buf.as_mut_ptr()));
+			error!("{}", c.to_str().unwrap());
+		}
+	}
+}
+#[cfg(feature = "https")]
+extern "C" fn verify_callback(preverify_ok: c_int, ctx: *mut X509_STORE_CTX) -> c_int {
+	debug!("verify_callback({}, {:p})", preverify_ok, ctx);
+	preverify_ok
+}
+#[cfg(feature = "https")]
+pub fn init_ssl(op: &mut Options, rt: &mut RtOptions) -> i32 {
+	use libc::ENOENT;
+	use openssl_sys::OPENSSL_INIT_LOAD_CRYPTO_STRINGS;
+	use std::ptr;
+
+	if op.https_cert.is_empty() || op.https_key.is_empty() {
+		return -ENOENT;
+	}
+
+	unsafe {
+		OPENSSL_init_ssl(0, ptr::null_mut());
+		OPENSSL_init_ssl(
+			OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS,
+			ptr::null_mut(),
+		);
+
+		let method = TLS_server_method();
+		if method.is_null() {
+			error!("TLS_server_method() failed");
+			syslogsslerr();
+			return -1;
+		}
+		let ssl_ctx = SSL_CTX_new(method);
+		if ssl_ctx.is_null() {
+			error!("SSL_CTX_new() failed");
+			syslogsslerr();
+			return -1;
+		}
+		if SSL_CTX_use_certificate_file(ssl_ctx, op.https_cert.as_ptr(), SSL_FILETYPE_PEM) == 0 {
+			error!(
+				"SSL_CTX_use_certificate_file({}) failed",
+				op.https_cert.to_str().unwrap()
+			);
+			syslogsslerr();
+			return -1;
+		}
+		if SSL_CTX_use_PrivateKey_file(ssl_ctx, op.https_key.as_ptr(), SSL_FILETYPE_PEM) == 0 {
+			error!(
+				"SSL_CTX_use_private_key_file({}) failed",
+				op.https_key.to_str().unwrap()
+			);
+			syslogsslerr();
+			return -1;
+		}
+		if SSL_CTX_check_private_key(ssl_ctx) == 0 {
+			error!("SSL_CTX_check_private_key() failed");
+			syslogsslerr();
+			return -1;
+		}
+		SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, Some(verify_callback));
+		info!(
+			"using {}",
+			CStr::from_ptr(OpenSSL_version(OPENSSL_VERSION)).to_str().unwrap()
+		);
+		rt.ssl_ctx = ssl_ctx;
+	}
+
+	0
+}
+#[cfg(feature = "https")]
+fn free_ssl(ssl_ctx: *mut SSL_CTX) {
+	unsafe {
+		if !ssl_ctx.is_null() {
+			SSL_CTX_free(ssl_ctx);
+		}
+		CONF_modules_unload(1);
+	}
+}
+
+#[cfg(feature = "https")]
+pub fn InitSSL_upnphttp(h: &mut upnphttp, rt: &mut RtOptions) -> i32 {
+	use std::os::fd::AsRawFd;
+	unsafe {
+		let ssl = SSL_new(rt.ssl_ctx);
+		if ssl.is_null() {
+			error!("SSL_new() failed");
+			syslogsslerr();
+			return -1;
+		}
+		if SSL_set_fd(ssl, h.socket.as_raw_fd()) == 0 {
+			error!("SSL_set_fd() failed");
+			syslogsslerr();
+			return -1;
+		}
+		let r = SSL_accept(ssl);
+		if r < 0 {
+			let err = SSL_get_error(ssl, r);
+			debug!("SSL_accept() returned {}, SSL_get_error() {}", r, err);
+			if err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE {
+				error!("SSL_accept() failed");
+				syslogsslerr();
+				return r;
+			}
+		}
+		h.ssl = Raw_SSL(NonNull::new(ssl));
+	}
+	0
 }
 
 pub fn CloseSocket_upnphttp(h: &mut upnphttp) {
@@ -577,7 +770,7 @@ pub fn Process_upnphttp(h: &mut upnphttp) {
 
 	match h.state {
 		EWaitingForHttpRequest => {
-			let n = match h.socket.recv(&mut buf) {
+			let n = match h.recv(&mut buf) {
 				Err(e) => {
 					if e.kind() != ErrorKind::WouldBlock && e.kind() != ErrorKind::Interrupted {
 						error!("recv (state0): {}", e);
@@ -606,7 +799,7 @@ pub fn Process_upnphttp(h: &mut upnphttp) {
 			}
 		}
 		EWaitingForHttpContent => {
-			let n = match h.socket.recv(&mut buf) {
+			let n = match h.recv(&mut buf) {
 				Err(e) => {
 					if e.kind() != ErrorKind::WouldBlock && e.kind() != ErrorKind::Interrupted {
 						error!("recv (state1): {}", e);
@@ -696,7 +889,7 @@ pub fn BuildResp_upnphttp(h: &mut upnphttp, body: Option<&[u8]>) {
 
 pub fn SendResp_upnphttp(h: &mut upnphttp) -> i32 {
 	while h.res_sent < (h.res_buf.len() as i32) {
-		match h.socket.send(&h.res_buf.as_slice()[h.res_sent as usize..]) {
+		match h.send(&h.res_buf.as_slice()[h.res_sent as usize..]) {
 			Ok(n) => {
 				if n == 0 {
 					error!("send(res_buf): {} bytes sent (out of {})", h.res_sent, h.res_buf.len());

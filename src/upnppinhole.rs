@@ -1,9 +1,9 @@
 use crate::upnpglobalvars::global_option;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
 use crate::warp::StackBufferReader;
-use crate::{nat_impl, Backend, PinholeEntry};
-use std::fs::{remove_file, File};
-use std::io::{Write};
+use crate::{Backend, PinholeEntry, nat_impl};
+use std::fs::{File, remove_file};
+use std::io::Write;
 use std::net::Ipv6Addr;
 use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
@@ -22,16 +22,16 @@ pub fn reload_from_lease_file6(nat: &mut nat_impl, lease_file6: &str) -> io::Res
 	}
 
 	let current_time = upnp_time().as_secs();
-	let mut buf = [0;512];
+	let mut buf = [0; 512];
 	let mut fdr = StackBufferReader::new(&mut buf);
-	
-	while let Some(line_buf) =  fdr.read_line(&mut file) {
+
+	while let Some(line_buf) = fdr.read_line(&mut file) {
 		let line = str::from_utf8(line_buf?);
 		if line.is_err() {
 			continue;
 		}
 		let line = line.unwrap();
-		
+
 		println!("Parsing lease file line '{}'", line);
 
 		let mut parts = line.split(';');
@@ -181,67 +181,66 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 	};
 
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
-	let mut buf = [0;128];
-	let mut fdr = StackBufferReader::new(&mut buf );
+	let mut buf = [0; 128];
+	let mut fdr = StackBufferReader::new(&mut buf);
 	// let mut buf = String::with_capacity(128);
 	let uid_str = format!("{}", uid);
 	while let Some(Ok(line_buf)) = fdr.read_line(&mut fd) {
-			if let Ok(buf) = str::from_utf8(line_buf) {
-				
-				// if l == 0 {
-				// 	break;
-				// }
-				if buf.trim().is_empty() {
-					continue;
-				}
-				let mut split = buf.split(';');
-
-				let proto = match split.next() {
-					Some(v) => v,
-					None => break,
-				};
-				let int_client = match split.next() {
-					Some(v) => v,
-					None => break,
-				};
-				let int_port = match split.next() {
-					Some(v) => v,
-					None => break,
-				};
-				let rem_client = match split.next() {
-					Some(v) => v,
-					None => break,
-				};
-				let rem_port = match split.next() {
-					Some(v) => v,
-					None => break,
-				};
-				let uid = match split.next() {
-					Some(v) => v,
-					None => break,
-				};
-				let timestamp_ = match split.next() {
-					Some(v) => v,
-					None => break,
-				};
-				let desc = match split.next() {
-					Some(v) => v,
-					None => break,
-				};
-
-				if uid == uid_str {
-					let _ = write!(
-						tmp,
-						"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{};{desc}\n",
-						format!("{}", timestamp).as_str()
-					);
-				} else {
-					let _ = write!(
-						tmp,
-						"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp_};{desc}\n",
-					);
-				}
+		if let Ok(buf) = str::from_utf8(line_buf) {
+			// if l == 0 {
+			// 	break;
+			// }
+			if buf.trim().is_empty() {
+				continue;
 			}
+			let mut split = buf.split(';');
+
+			let proto = match split.next() {
+				Some(v) => v,
+				None => break,
+			};
+			let int_client = match split.next() {
+				Some(v) => v,
+				None => break,
+			};
+			let int_port = match split.next() {
+				Some(v) => v,
+				None => break,
+			};
+			let rem_client = match split.next() {
+				Some(v) => v,
+				None => break,
+			};
+			let rem_port = match split.next() {
+				Some(v) => v,
+				None => break,
+			};
+			let uid = match split.next() {
+				Some(v) => v,
+				None => break,
+			};
+			let timestamp_ = match split.next() {
+				Some(v) => v,
+				None => break,
+			};
+			let desc = match split.next() {
+				Some(v) => v,
+				None => break,
+			};
+
+			if uid == uid_str {
+				let _ = write!(
+					tmp,
+					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{};{desc}\n",
+					format!("{}", timestamp).as_str()
+				);
+			} else {
+				let _ = write!(
+					tmp,
+					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp_};{desc}\n",
+				);
+			}
+		}
 	}
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
@@ -270,7 +269,7 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 	};
 
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
-	let mut buf = [0;128];
+	let mut buf = [0; 128];
 	let mut fdr = StackBufferReader::new(&mut buf);
 	let uid_str = format!("{}", uid);
 
@@ -278,57 +277,57 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 
 	while let Some(Ok(line_buf)) = fdr.read_line(&mut fd) {
 		if let Ok(buf) = str::from_utf8(line_buf) {
-				if buf.trim().is_empty() {
+			if buf.trim().is_empty() {
+				continue;
+			}
+			if uid > 0 {
+				let mut split = buf.split(';');
+
+				let proto = match split.next() {
+					Some(v) => v,
+					None => break,
+				};
+				let int_client = match split.next() {
+					Some(v) => v,
+					None => break,
+				};
+				let int_port = match split.next() {
+					Some(v) => v,
+					None => break,
+				};
+				let rem_client = match split.next() {
+					Some(v) => v,
+					None => break,
+				};
+				let rem_port = match split.next() {
+					Some(v) => v,
+					None => break,
+				};
+				let uid = match split.next() {
+					Some(v) => v,
+					None => break,
+				};
+				let timestamp = match split.next() {
+					Some(v) => v,
+					None => break,
+				};
+				let desc = match split.next() {
+					Some(v) => v,
+					None => break,
+				};
+
+				if uid == uid_str {
 					continue;
 				}
-				if uid > 0 {
-					let mut split = buf.split(';');
 
-					let proto = match split.next() {
-						Some(v) => v,
-						None => break,
-					};
-					let int_client = match split.next() {
-						Some(v) => v,
-						None => break,
-					};
-					let int_port = match split.next() {
-						Some(v) => v,
-						None => break,
-					};
-					let rem_client = match split.next() {
-						Some(v) => v,
-						None => break,
-					};
-					let rem_port = match split.next() {
-						Some(v) => v,
-						None => break,
-					};
-					let uid = match split.next() {
-						Some(v) => v,
-						None => break,
-					};
-					let timestamp = match split.next() {
-						Some(v) => v,
-						None => break,
-					};
-					let desc = match split.next() {
-						Some(v) => v,
-						None => break,
-					};
-
-					if uid == uid_str {
-						continue;
-					}
-
-					let _ = write!(
-						tmp,
-						"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}\n"
-					);
-				} else if !buf.starts_with(prefix_str.as_str()) {
-					let _ = write!(tmp, "{}\n", buf.as_str());
-				}
+				let _ = write!(
+					tmp,
+					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}\n"
+				);
+			} else if !buf.starts_with(prefix_str.as_str()) {
+				let _ = write!(tmp, "{}\n", buf.as_str());
 			}
+		}
 	}
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
@@ -358,67 +357,67 @@ pub fn lease_file6_expire() -> i32 {
 	};
 
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
-	let mut buf = [0;128];
+	let mut buf = [0; 128];
 	let mut fdr = StackBufferReader::new(&mut buf);
 
 	let current_unix_time = upnp_time().as_secs();
 
 	while let Some(Ok(line_buf)) = fdr.read_line(&mut fd) {
 		if let Ok(buf) = str::from_utf8(line_buf) {
-				if buf.trim().is_empty() {
-					continue;
-				}
-				let mut split = buf.split(';');
-
-				let proto = match split.next() {
-					Some(v) => v,
-					None => continue,
-				};
-				let int_client = match split.next() {
-					Some(v) => v,
-					None => continue,
-				};
-				let int_port = match split.next() {
-					Some(v) => v,
-					None => continue,
-				};
-				let rem_client = match split.next() {
-					Some(v) => v,
-					None => continue,
-				};
-				let rem_port = match split.next() {
-					Some(v) => v,
-					None => continue,
-				};
-				let uid = match split.next() {
-					Some(v) => v,
-					None => continue,
-				};
-				let timestamp = match split.next() {
-					Some(v) => v,
-					None => continue,
-				};
-				let desc = match split.next() {
-					Some(v) => v,
-					None => continue,
-				};
-
-				match u64::from_str_radix(timestamp, 10) {
-					Ok(t) => {
-						debug!("Expire: timestamp is '{}'", t);
-						debug!("Expire: current timestamp is '{}'", current_unix_time);
-						if t > 0 && current_unix_time > t || t == 0 {
-							continue;
-						}
-					}
-					Err(_) => {}
-				}
-
-				let _ = write!(
-					tmp,
-					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}\n"
-				);
+			if buf.trim().is_empty() {
+				continue;
 			}
+			let mut split = buf.split(';');
+
+			let proto = match split.next() {
+				Some(v) => v,
+				None => continue,
+			};
+			let int_client = match split.next() {
+				Some(v) => v,
+				None => continue,
+			};
+			let int_port = match split.next() {
+				Some(v) => v,
+				None => continue,
+			};
+			let rem_client = match split.next() {
+				Some(v) => v,
+				None => continue,
+			};
+			let rem_port = match split.next() {
+				Some(v) => v,
+				None => continue,
+			};
+			let uid = match split.next() {
+				Some(v) => v,
+				None => continue,
+			};
+			let timestamp = match split.next() {
+				Some(v) => v,
+				None => continue,
+			};
+			let desc = match split.next() {
+				Some(v) => v,
+				None => continue,
+			};
+
+			match u64::from_str_radix(timestamp, 10) {
+				Ok(t) => {
+					debug!("Expire: timestamp is '{}'", t);
+					debug!("Expire: current timestamp is '{}'", current_unix_time);
+					if t > 0 && current_unix_time > t || t == 0 {
+						continue;
+					}
+				}
+				Err(_) => {}
+			}
+
+			let _ = write!(
+				tmp,
+				"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}\n"
+			);
+		}
 	}
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file) {

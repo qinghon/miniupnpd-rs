@@ -112,7 +112,15 @@ pub trait OS {
 	fn port_in_use(&self, nat: &nat_impl, if_name: &IfName, eport: u16, proto: u8, iaddr: &Ipv4Addr, iport: u16)
 	-> i32;
 	#[cfg(not(feature = "portinuse"))]
-	fn port_in_use(&self, _nat: &nat_impl, _if_name: &IfName, _eport: u16, _proto: u8, _iaddr: &Ipv4Addr, _iport: u16) -> i32 {
+	fn port_in_use(
+		&self,
+		_nat: &nat_impl,
+		_if_name: &IfName,
+		_eport: u16,
+		_proto: u8,
+		_iaddr: &Ipv4Addr,
+		_iport: u16,
+	) -> i32 {
 		0
 	}
 }

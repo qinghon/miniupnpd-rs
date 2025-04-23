@@ -1,14 +1,10 @@
 #![feature(random)]
 #![feature(ip)]
 #![feature(const_format_args)]
-#![allow(
-	non_camel_case_types,
-	non_snake_case,
-	non_upper_case_globals,
-)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
-use miniupnpd_rs::asyncsendto::*;
 use daemonize::checkforrunning;
+use miniupnpd_rs::asyncsendto::*;
 use miniupnpd_rs::getifaddr::*;
 use miniupnpd_rs::log::setlogmask;
 use miniupnpd_rs::minissdp::*;
@@ -18,18 +14,20 @@ use miniupnpd_rs::pcpserver::*;
 use miniupnpd_rs::rdr_name_type::*;
 use miniupnpd_rs::upnpdescstrings::MINIUPNPD_VERSION;
 use miniupnpd_rs::upnpevents::subscriber_service_enum::*;
+#[cfg(use_systemd)]
+use miniupnpd_rs::upnpevents::upnp_update_status;
 use miniupnpd_rs::upnpevents::*;
 use miniupnpd_rs::upnpglobalvars::*;
-use miniupnpd_rs::upnphttp::{upnphttp, ESendingAndClosing, EToDelete, EWaitingForHttpContent};
-use miniupnpd_rs::upnphttp::{New_upnphttp, Process_upnphttp, MINIUPNPD_SERVER_STRING};
+use miniupnpd_rs::upnphttp::{ESendingAndClosing, EToDelete, EWaitingForHttpContent, upnphttp};
+use miniupnpd_rs::upnphttp::{MINIUPNPD_SERVER_STRING, New_upnphttp, Process_upnphttp};
 use miniupnpd_rs::upnppinhole::upnp_clean_expired_pinholes;
 use miniupnpd_rs::upnpredirect::{get_upnp_rules_state_list, remove_unused_rules, rule_state};
 use miniupnpd_rs::upnpstun::perform_stun;
 use miniupnpd_rs::upnputils::{get_lan_for_peer, upnp_gettimeofday, upnp_time};
 use miniupnpd_rs::uuid::UUID;
-use miniupnpd_rs::warp::{make_timeval, select, sockaddr_to_v4, FdSet, IfName};
+use miniupnpd_rs::warp::{FdSet, IfName, make_timeval, select, sockaddr_to_v4};
 use miniupnpd_rs::*;
-use miniupnpd_rs::{options, Backend, OS};
+use miniupnpd_rs::{Backend, OS, options};
 use miniupnpd_rs::{debug, error, info, nat_impl, notice};
 use socket2::Socket;
 use std::cmp::max;
@@ -46,15 +44,16 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::time::{Duration, Instant};
 use std::{fs, io, mem, ptr};
-#[cfg(use_systemd)]
-use miniupnpd_rs::upnpevents::upnp_update_status;
+
+#[cfg(feature = "https")]
+use miniupnpd_rs::upnphttp::{InitSSL_upnphttp, init_ssl};
 
 mod daemonize;
 
 const SYSTEM_OS: os = os::new();
 
-const DEF_CONF_FILE:&str = "/etc/miniupnpd/miniupnpd.conf";
-const DEF_PID_FILE:&str = "/var/run/miniupnpd.pid";
+const DEF_CONF_FILE: &str = "/etc/miniupnpd/miniupnpd.conf";
+const DEF_PID_FILE: &str = "/var/run/miniupnpd.pid";
 
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
@@ -89,9 +88,10 @@ mod systemd {
 fn systemd_notify(rtv: &mut runtime_vars, status: &'static str) {
 	use systemd::*;
 	let ret = unsafe {
-		sd_notify(0,
-		          const_format_args!("STATUS=version {} {status}\n\0", MINIUPNPD_VERSION)
-			          .as_str().unwrap().as_ptr() as *const _
+		sd_notify(
+			0,
+			const_format_args!("STATUS=version {} {status}\n\0", MINIUPNPD_VERSION).as_str().unwrap().as_ptr()
+				as *const _,
 		)
 	};
 	if ret > 0 {
@@ -99,8 +99,7 @@ fn systemd_notify(rtv: &mut runtime_vars, status: &'static str) {
 	}
 }
 #[cfg(not(use_systemd))]
-fn systemd_notify(_rtv: &mut runtime_vars, _status: &'static str) {
-}
+fn systemd_notify(_rtv: &mut runtime_vars, _status: &'static str) {}
 
 #[cfg(cap_lib = "pledge")]
 fn drop_privilge() -> i32 {
@@ -267,7 +266,9 @@ fn OpenAndConfHTTPSocket(v: &Options, port: &mut u16, ipv6: bool, runtime_flags:
 	};
 
 	let _ = socket.set_reuse_address(true);
-	let _ = socket.set_nonblocking(true);
+	if let Err(_) = socket.set_nonblocking(true) {
+		warn!("set_non_blocking(http): %m");
+	}
 
 	let listen_addr = if ipv6 {
 		SocketAddrV6::new(ipv6_bind_addr, *port, 0, 0).into()
@@ -483,12 +484,11 @@ fn init(
 	runtime_flags: &mut u32,
 	pidfilename: &mut String,
 ) -> i32 {
-	
 	let mut debug_flag = false;
 	let mut verbosity_level: i32 = 0;
-	let mut openlog_option ;
-	let mut systemd_flag= false;
-	
+	let mut openlog_option;
+	let mut systemd_flag = false;
+
 	let mut optionsfile = DEF_CONF_FILE;
 
 	let args = std::env::args().collect::<Vec<String>>();
@@ -554,14 +554,15 @@ fn init(
 		if i != idx {
 			continue;
 		}
-		if !args[i].starts_with('-') {
+		if !args[i].starts_with('-') || args[i].len() <= 1 {
+			idx += 1;
 			continue;
 		}
-		match args[idx].chars().nth(0).unwrap() {
-			'v' => verbosity_level = args[idx][1..].len() as i32,
-			'4' => option.ipv6_disable = true,
-			'1' => option.force_igd_desc_v1 = true,
-			'b' => {
+		match args[idx].as_bytes()[1] {
+			b'v' => verbosity_level = args[idx][1..].len() as i32,
+			b'4' => option.ipv6_disable = true,
+			b'1' => option.force_igd_desc_v1 = true,
+			b'b' => {
 				match i32::from_str(&args[idx + 1]) {
 					Ok(bootid) => {
 						option.upnp_bootid = bootid as u32;
@@ -575,7 +576,7 @@ fn init(
 				}
 				idx += 1;
 			}
-			'o' => {
+			b'o' => {
 				let s = args[idx + 1].as_str();
 				if s.starts_with("STUN:") {
 					match s.splitn(2, ':').collect::<Vec<&str>>().as_slice() {
@@ -604,7 +605,7 @@ fn init(
 				}
 				idx += 1;
 			}
-			't' => {
+			b't' => {
 				option.notify_interval = match u32::from_str(&args[idx + 1]) {
 					Ok(v) => v,
 					Err(_) => {
@@ -614,7 +615,7 @@ fn init(
 				};
 				idx += 1;
 			}
-			'r' => {
+			b'r' => {
 				option.clean_ruleset_interval = match u32::from_str(&args[idx + 1]) {
 					Ok(v) => v,
 					Err(_) => {
@@ -624,7 +625,7 @@ fn init(
 				};
 				idx += 1;
 			}
-			'u' => {
+			b'u' => {
 				option.uuid = match UUID::from_str(&args[idx + 1][5..]) {
 					Ok(v) => v,
 					Err(e) => {
@@ -637,28 +638,28 @@ fn init(
 				uuid_seted = true;
 				idx += 1;
 			}
-			's' => {
+			b's' => {
 				option.serial = args[idx + 1].to_string();
 				idx += 1;
 			}
-			'm' => {
+			b'm' => {
 				option.model_number = args[idx + 1].to_string();
 				idx += 1;
 			}
-			'N' => {
+			b'N' => {
 				option.enable_natpmp = true;
 			}
-			'U' => {
+			b'U' => {
 				option.system_uptime = true;
 			}
-			'S' => {
+			b'S' => {
 				if args[idx].len() > 2 {
 					print_usage(pidfilename.as_str(), optionsfile);
 					return -1;
 				}
 				option.secure_mode = false;
 			}
-			'i' => {
+			b'i' => {
 				let ifname = match IfName::from_str(args[idx + 1].as_str()) {
 					Ok(v) => v,
 					Err(e) => {
@@ -670,7 +671,7 @@ fn init(
 				idx += 1;
 			}
 			#[cfg(feature = "ipv6")]
-			'I' => {
+			b'I' => {
 				option.ext_ifname6 = match IfName::from_str(args[idx + 1].as_str()) {
 					Ok(v) => v,
 					Err(e) => {
@@ -681,36 +682,37 @@ fn init(
 				};
 				idx += 1;
 			}
-			'p' => {
+			b'p' => {
 				option.http_port = u16::from_str(&args[idx + 1]).unwrap();
 				idx += 1;
 			}
 			#[cfg(feature = "https")]
-			'H' => {
+			b'H' => {
 				option.https_port = u16::from_str(&args[idx + 1]).unwrap();
 			}
+
 			#[cfg(feature = "nfqueue")]
-			'Q' => {}
+			b'Q' => {}
 			#[cfg(feature = "nfqueue")]
-			'n' => {}
-			'P' => {
+			b'n' => {}
+			b'P' => {
 				pidfilename.clear();
 				pidfilename.push_str(&args[idx + 1]);
 				idx += 1;
 			}
-			'd' => {}
-			'w' => {
+			b'd' => {}
+			b'w' => {
 				option.presentation_url = Some(args[idx + 1].to_string());
 				idx += 1;
 			}
-			'B' => {
+			b'B' => {
 				let up = usize::from_str(&args[idx + 1]).unwrap();
 				let down = usize::from_str(&args[idx + 2]).unwrap();
 				option.bitrate_up = Some(up);
 				option.bitrate_down = Some(down);
 				idx += 2;
 			}
-			'a' => {
+			b'a' => {
 				option.listening_ip = vec![];
 				let mut lan_addr = lan_addr_s::default();
 				if parselanaddr(&mut lan_addr, args[idx + 1].as_str()) < 0 {
@@ -719,7 +721,7 @@ fn init(
 				}
 				idx += 1;
 			}
-			'A' => {
+			b'A' => {
 				let p = match options::read_permission_line(args[idx + 1].as_str()) {
 					Ok(p) => p,
 					Err(_) => {
@@ -730,7 +732,7 @@ fn init(
 				option.upnpperms.push(p);
 				idx += 1;
 			}
-			'f' => {}
+			b'f' => {}
 			_ => {}
 		}
 		idx += 1;
@@ -796,7 +798,7 @@ fn init(
 		error!("Error: options ext_ip= and ext_perform_stun=yes cannot be specified together");
 		return -1;
 	}
-	let pid= if debug_flag || systemd_flag {
+	let pid = if debug_flag || systemd_flag {
 		unsafe { libc::getpid() }
 	} else {
 		if unsafe { libc::daemon(0, 0) } < 0 {
@@ -813,7 +815,7 @@ fn init(
 			1 => {
 				setlogmask((1u32 << (log::LOG_INFO + 1)) - 1);
 			}
-			2 => {
+			2.. => {
 				setlogmask((1u32 << (log::LOG_DEBUG + 1)) - 1);
 			}
 			_ => {}
@@ -824,7 +826,7 @@ fn init(
 		return 1;
 	}
 	set_startup_time(*runtime_flags);
-	
+
 	if setup_signal_handle() != 0 {
 		return 1;
 	}
@@ -836,21 +838,23 @@ fn init(
 	rt.nat_impl.init_iptpinhole();
 
 	let _ = daemonize::writepidfile(pidfilename.as_str(), pid);
-	
-	
+
 	if systemd_flag {
 		systemd_notify(rtv, "starting");
 	}
-	
+
 	info!("Reloading rules from lease file");
 	let _ = upnpredirect::reload_from_lease_file(rt, &option.lease_file);
 	let _ = upnppinhole::reload_from_lease_file6(&mut rt.nat_impl, &option.lease_file6);
+	trace!("load option {:?}", option);
 	v.replace(option);
 	0
 }
 fn main() {
 	let mut i: i32 = 0;
 	let mut shttpl: Option<Socket> = None;
+	#[cfg(feature = "https")]
+	let mut shttpsl: Option<Socket> = None;
 	let mut sudp: Option<Rc<Socket>> = None;
 	let mut sudpv6: Option<Rc<Socket>> = None;
 	let mut snatpmp: Vec<Rc<Socket>> = vec![];
@@ -865,13 +869,13 @@ fn main() {
 	let mut timeout;
 
 	let mut lasttimeofday = Instant::now();
-	let mut current_notify_interval ;
+	let mut current_notify_interval;
 	let mut max_fd: i32 = -1;
 
 	let mut rule_list: Vec<rule_state> = Vec::new();
 	let mut checktime: Instant = Instant::now();
 
-	let mut next_pinhole_ts ;
+	let mut next_pinhole_ts;
 	let mut op = None;
 	// let mut use_ext_ip_addr = None;
 	let mut runtime_flags = 0u32;
@@ -890,20 +894,21 @@ fn main() {
 		subscriber_list: vec![],
 		notify_list: vec![],
 		os,
+		#[cfg(feature = "https")]
+		ssl_ctx: ptr::null_mut(),
 	};
-	if init(
-		&mut op,
-		&mut rt_options,
-		&mut rtv,
-		&mut runtime_flags,
-		&mut pidfilename,
-	) != 0
-	{
+	if init(&mut op, &mut rt_options, &mut rtv, &mut runtime_flags, &mut pidfilename) != 0 {
 		eprintln!("Failed to initialize miniupnpd.");
 		return;
 	}
 	let mut rt = &mut rt_options;
 	let mut v = op.unwrap();
+
+	#[cfg(feature = "https")]
+	if init_ssl(&mut v, rt) < 0 {
+		return;
+	}
+
 	current_notify_interval = gen_current_notify_interval(v.notify_interval);
 
 	info!(
@@ -958,7 +963,7 @@ fn main() {
 	set_os_version();
 
 	if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {
-		let mut listen_port: u16 ;
+		let mut listen_port: u16;
 		listen_port = if v.port > 0 { v.port } else { 0 };
 		shttpl = match OpenAndConfHTTPSocket(
 			&v,
@@ -972,6 +977,25 @@ fn main() {
 				return;
 			}
 		};
+
+		#[cfg(feature = "https")]
+		{
+			listen_port = if v.https_port > 0 { v.https_port } else { 0 };
+			shttpsl = match OpenAndConfHTTPSocket(
+				&v,
+				&mut listen_port,
+				!GETFLAG!(runtime_flags, IPV6DISABLEDMASK),
+				&mut runtime_flags,
+			) {
+				Ok(s) => Some(s),
+				Err(e) => {
+					error!("Failed to open socket for HTTPS. EXITING:{}", e);
+					return;
+				}
+			};
+			notice!("HTTPS listening on port {}", v.https_port);
+		}
+
 		v.port = listen_port;
 		notice!("HTTP listening on port {} ", v.port);
 		#[cfg(feature = "ipv6")]
@@ -1048,12 +1072,12 @@ fn main() {
 	if drop_privilege() != 0 {
 		return;
 	}
-	#[cfg(use_systemd ="1")]
+	#[cfg(use_systemd)]
 	if rtv.systemd_notify {
 		upnp_update_status(rt);
 		systemd_notify(&mut rtv, "READY=1");
 	}
-	
+
 	while quitting.load(Relaxed) == 0 {
 		if upnp_bootid.load(Relaxed) < (60 * 60 * 24) && upnp_time() > Duration::from_secs(24 * 60 * 60) {
 			upnp_bootid.store(upnp_time().as_secs() as u32, Relaxed);
@@ -1178,6 +1202,11 @@ fn main() {
 			readset.set(shttpld.as_raw_fd());
 			max_fd = max(max_fd, shttpld.as_raw_fd());
 		}
+		#[cfg(feature = "https")]
+		if let Some(shttpsld) = &shttpsl {
+			readset.set(shttpsld.as_raw_fd());
+			max_fd = max(max_fd, shttpsld.as_raw_fd());
+		}
 
 		if let Some(sudpv6d) = sudpv6.as_ref() {
 			readset.set(sudpv6d.as_raw_fd());
@@ -1198,7 +1227,7 @@ fn main() {
 		if i > 1 {
 			trace!("{} active incoming HTTP connections", i);
 		}
-		
+
 		for snatpmpd in &snatpmp {
 			readset.set(snatpmpd.as_raw_fd());
 			max_fd = max(max_fd, snatpmpd.as_raw_fd());
@@ -1347,16 +1376,26 @@ fn main() {
 					}
 				}
 			}
+			#[cfg(feature = "https")]
+			if let Some(shttpsld) = &shttpsl {
+				if readset.is_set(shttpsld.as_raw_fd()) {
+					let tmp = ProcessIncomingHTTP(op, shttpsld, "HTTPS");
+					if let Ok(mut h) = tmp {
+						if InitSSL_upnphttp(&mut h, rt) == 0 {
+							upnphttphead.push(h);
+						}
+					}
+				}
+			}
 
 			upnphttphead.retain(|x| x.state != EToDelete);
-			
+
 			#[cfg(use_systemd)]
 			{
 				if rtv.systemd_notify {
 					upnp_update_status(rt);
 				}
 			}
-			
 		}
 	}
 	notice!("shutting down MiniUPnPd");
@@ -1367,7 +1406,7 @@ fn main() {
 			systemd_notify(&mut rtv, "shutting down\nSTOPPING=1");
 		}
 	}
-	
+
 	if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {
 		if let Err(e) = SendSSDPGoodbye(&mut send_list, snotify.as_slice()) {
 			error!("Failed to broadcast good-bye notifications: {}", e);

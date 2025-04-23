@@ -5,7 +5,12 @@ pub use crate::upnppermissions::{read_permission_line, upnpperm};
 use crate::uuid::UUID;
 use crate::warp::{IfName, StackBufferReader};
 use crate::{error, nat_impl, os};
+#[cfg(feature = "https")]
+use openssl_sys::SSL_CTX;
 use std::cell::RefCell;
+use std::ffi::CStr;
+#[cfg(feature = "https")]
+use std::ffi::CString;
 use std::fs::File;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -15,8 +20,11 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_MINISSDP_DSOCKET_PATH: &'static str = "/var/run/minissdpd.sock";
+#[cfg(feature = "https")]
+pub const DEFAULT_HTTPS_CERT: &CStr = c"/etc/miniupnpd/certificate.pem";
+pub const DEFAULT_HTTPS_KEY: &CStr = c"/etc/miniupnpd/private-key.pem";
 
-#[derive(Default)]
+#[derive(Debug)]
 pub struct Options {
 	pub ext_ifname: IfName,
 
@@ -32,6 +40,11 @@ pub struct Options {
 	pub http_port: u16,
 	#[cfg(feature = "https")]
 	pub https_port: u16,
+	#[cfg(feature = "https")]
+	pub https_cert: CString,
+	#[cfg(feature = "https")]
+	pub https_key: CString,
+
 	pub bitrate_up: Option<usize>,
 	pub bitrate_down: Option<usize>,
 	pub presentation_url: Option<String>,
@@ -67,6 +80,62 @@ pub struct Options {
 	pub upnp_bootid: u32,
 	pub runtime_flag: u32,
 }
+impl Default for Options {
+	fn default() -> Self {
+		Self {
+			ext_ifname: Default::default(),
+			ext_ifname6: Default::default(),
+			ext_ip: None,
+			ext_perform_stun: false,
+			ext_stun_host: None,
+			ext_stun_port: 0,
+			listening_ip: vec![],
+			ipv6_listening_ip: None,
+			ipv6_disable: false,
+			port: 0,
+			http_port: 0,
+			#[cfg(feature = "https")]
+			https_port: 0,
+			#[cfg(feature = "https")]
+			https_cert: DEFAULT_HTTPS_CERT.into(),
+			#[cfg(feature = "https")]
+			https_key: DEFAULT_HTTPS_KEY.into(),
+			bitrate_up: None,
+			bitrate_down: None,
+			presentation_url: None,
+			notify_interval: 0,
+			system_uptime: false,
+			packet_log: false,
+			uuid: Default::default(),
+			serial: Default::default(),
+			model_number: Default::default(),
+			clean_ruleset_threshold: 0,
+			clean_ruleset_interval: 0,
+			upnp_table_name: "".to_string(),
+			upnp_nat_table_name: "".to_string(),
+			upnp_forward_chain: "".to_string(),
+			upnp_nat_chain: "".to_string(),
+			upnp_nat_postrouting_chain: "".to_string(),
+			upnp_nftables_family_split: false,
+			enable_natpmp: false,
+			enable_pcp_pmp: false,
+			min_lifetime: 0,
+			max_lifetime: 0,
+			pcp_allow_thirdparty: "".to_string(),
+			enable_upnp: false,
+			lease_file: "".to_string(),
+			lease_file6: "".to_string(),
+			force_igd_desc_v1: false,
+			minissdpdsocket: None,
+			secure_mode: false,
+			quickrules: false,
+			upnpperms: vec![],
+
+			upnp_bootid: 0,
+			runtime_flag: 0,
+		}
+	}
+}
 
 pub struct RtOptions {
 	pub use_ext_ip_addr: Option<IpAddr>,
@@ -77,6 +146,8 @@ pub struct RtOptions {
 	pub subscriber_list: Vec<Rc<RefCell<subscriber>>>,
 	pub notify_list: Vec<upnp_event_notify>,
 	pub os: os,
+	#[cfg(feature = "https")]
+	pub ssl_ctx: *mut SSL_CTX,
 }
 
 pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str) -> i32 {
@@ -186,6 +257,18 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str) -> bool {
 			}
 			Err(_) => return false,
 		},
+		#[cfg(feature = "https")]
+		"https_port" => match u16::from_str(value) {
+			Ok(v) => {
+				op.https_port = v;
+			}
+			Err(_) => return false,
+		},
+		#[cfg(feature = "https")]
+		"https_cert" => op.https_cert = CString::from_str(&value).unwrap(),
+		#[cfg(feature = "https")]
+		"https_key" => op.https_key = CString::from_str(&value).unwrap(),
+
 		"bitrate_up" => match usize::from_str(value) {
 			Ok(v) => {
 				op.bitrate_up = Some(v);
@@ -301,14 +384,14 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str) -> bool {
 pub fn readoptionsfile(fname: &Path, _debug_flag: bool) -> Result<Options, io::Error> {
 	trace!("Reading configuration from file {:?}", fname);
 	let mut file = File::open(fname)?;
-	
-	let mut buf = [0;1024];
+
+	let mut buf = [0; 1024];
 	let mut reader = StackBufferReader::new(&mut buf);
-	
+
 	let mut perms = vec![];
 	let mut option = Options::default();
 
-	while let Some(Ok(line_buf)) = reader.read_line(&mut file){
+	while let Some(Ok(line_buf)) = reader.read_line(&mut file) {
 		let line = match str::from_utf8(line_buf) {
 			Ok(v) => v,
 			Err(_) => continue,

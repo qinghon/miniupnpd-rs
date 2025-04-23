@@ -101,7 +101,7 @@ if real need , tell me I can roll back
 - [ ] `LEASEFILE_USE_REMAINING_TIME`
 - [x] `CHECK_PORTINUSE`
 - [ ] `V6SOCKETS_ARE_V6ONLY`
-- [ ] `ENABLE_HTTPS`
+- [x] `ENABLE_HTTPS`
 - [ ] `ENABLE_NFQUEUE`: when if real user need
 - [x] `USE_SYSTEMD`
 - [ ] `PF_SET_DST_ADDR`
