@@ -31,10 +31,9 @@ use openssl_sys::{
 	CONF_modules_unload, ERR_error_string, ERR_get_error, OPENSSL_INIT_LOAD_SSL_STRINGS, OPENSSL_VERSION,
 	OPENSSL_init_ssl, OpenSSL_version, SSL, SSL_CTX, SSL_CTX_check_private_key, SSL_CTX_free, SSL_CTX_new,
 	SSL_CTX_set_verify, SSL_CTX_use_PrivateKey_file, SSL_CTX_use_certificate_file, SSL_ERROR_WANT_READ,
-	SSL_ERROR_WANT_WRITE, SSL_FILETYPE_PEM, SSL_VERIFY_NONE, SSL_accept, SSL_free, SSL_new, SSL_read, SSL_set_fd,
-	TLS_server_method, X509_STORE_CTX,
+	SSL_ERROR_WANT_WRITE, SSL_FILETYPE_PEM, SSL_VERIFY_NONE, SSL_accept, SSL_free, SSL_get_error, SSL_new, SSL_read,
+	SSL_set_fd, SSL_write, TLS_server_method, X509_STORE_CTX,
 };
-use openssl_sys::{SSL_get_error, SSL_write};
 #[cfg(feature = "https")]
 use std::ptr::NonNull;
 

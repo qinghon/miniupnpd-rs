@@ -106,5 +106,5 @@ if real need , tell me I can roll back
 - [x] `USE_SYSTEMD`
 - [ ] `PF_SET_DST_ADDR`
 - [ ] `MULTIPLE_EXTERNAL_IP`: need full refactor
-- [ ] `ENABLE_REGEX`
+- [x] `ENABLE_REGEX`
 - [ ] `USE_IFNAME_IN_RULES`

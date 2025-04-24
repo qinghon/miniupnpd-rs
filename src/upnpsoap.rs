@@ -1473,7 +1473,7 @@ fn GetAssignedRoles(h: &mut upnphttp, action: &str, ns: &str) {
 	{
 		use openssl_sys::SSL_get1_peer_certificate;
 		use openssl_sys::X509_free;
-		if ! h.ssl.is_none() {
+		if !h.ssl.is_none() {
 			let peer_cert = unsafe { SSL_get1_peer_certificate(h.ssl.as_ptr()) };
 			if !peer_cert.is_null() {
 				role_list = "Admin Basic"; // Update role list based on client certificate

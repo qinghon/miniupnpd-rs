@@ -1,6 +1,8 @@
 #![allow(unused_variables)]
+#[cfg(feature = "regex")]
+use regex_lite::Regex;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Debug)]
 #[repr(C)]
 pub struct upnpperm {
 	pub type_0: UPNPPERM,
@@ -11,7 +13,7 @@ pub struct upnpperm {
 	pub iport_min: u16,
 	pub iport_max: u16,
 	#[cfg(feature = "regex")]
-	pub re: String,
+	pub re: Option<Regex>,
 }
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -24,57 +26,81 @@ impl FromStr for upnpperm {
 	type Err = io::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let tokens = s.split_whitespace().collect::<Vec<_>>();
-		match tokens.as_slice() {
-			[ad, port_range, ip_mask, ext_port_range, ..] => {
-				let action = match ad {
-					&"allow" => UPNPPERM_ALLOW,
-					&"deny" => UPNPPERM_DENY,
-					_ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm")),
-				};
-				let (imin_str, imax_str) = port_range.split_once('-').ok_or(io::Error::new(
-					io::ErrorKind::InvalidInput,
-					"invalid upnpperm port range",
-				))?;
-				let (emin_str, emax_str) = ext_port_range.split_once('-').ok_or(io::Error::new(
-					io::ErrorKind::InvalidInput,
-					"invalid upnpperm port range",
-				))?;
+		let line = s.trim();
+		let mut tokens = line.split_whitespace();
+		let ad = tokens
+			.next()
+			.and_then(|s| match s {
+				"allow" => Some(UPNPPERM_ALLOW),
+				"deny" => Some(UPNPPERM_DENY),
+				_ => None,
+			})
+			.ok_or(io::ErrorKind::InvalidInput)?;
 
-				let eport_min = emin_str
-					.parse::<u16>()
-					.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm port range min"))?;
-				let eport_max = emax_str
-					.parse::<u16>()
-					.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm port range max"))?;
-
-				let iport_min = imin_str
-					.parse::<u16>()
-					.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm port range min"))?;
-				let iport_max = imax_str
-					.parse::<u16>()
-					.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm port range max"))?;
-
-				let ipmask = ipnet::Ipv4Net::from_str(ip_mask)
-					.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm ipmask"))?;
-
-				let r = Self {
-					type_0: action,
-
-					eport_min,
-					eport_max,
-					address: ipmask.addr(),
-					mask: ipmask.netmask(),
-					iport_min,
-					iport_max,
-					#[cfg(feature = "regex")]
-					re: "".to_string(),
-				};
-				trace!("perm rule added: {:?}", r);
-				Ok(r)
+		let port_range = tokens.next().ok_or(io::ErrorKind::InvalidInput)?;
+		let ip_mask = tokens.next().ok_or(io::ErrorKind::InvalidInput)?;
+		let ext_port_range = tokens.next().ok_or(io::ErrorKind::InvalidInput)?;
+		#[cfg(feature = "regex")]
+		let re = {
+			if let Some(start) = line.find('"')
+				&& let Some(end) = line.rfind('"')
+			{
+				if end > start {
+					let regex_str = &line[start + 1..end];
+					let re = match Regex::new(regex_str.trim_matches('"')) {
+						Ok(r) => r,
+						Err(e) => {
+							return Err(io::Error::new(io::ErrorKind::InvalidInput, e));
+						}
+					};
+					Some(re)
+				} else {
+					None
+				}
+			} else {
+				None
 			}
-			_ => Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm")),
-		}
+		};
+
+		let (imin_str, imax_str) = port_range.split_once('-').ok_or(io::Error::new(
+			io::ErrorKind::InvalidInput,
+			"invalid upnpperm port range",
+		))?;
+		let (emin_str, emax_str) = ext_port_range.split_once('-').ok_or(io::Error::new(
+			io::ErrorKind::InvalidInput,
+			"invalid upnpperm port range",
+		))?;
+
+		let eport_min = emin_str
+			.parse::<u16>()
+			.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm port range"))?;
+		let eport_max = emax_str
+			.parse::<u16>()
+			.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm port range"))?;
+
+		let iport_min = imin_str
+			.parse::<u16>()
+			.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm port range"))?;
+		let iport_max = imax_str
+			.parse::<u16>()
+			.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm port range"))?;
+
+		let ipmask = ipnet::Ipv4Net::from_str(ip_mask)
+			.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid upnpperm ipmask"))?;
+
+		let r = Self {
+			type_0: ad,
+			eport_min,
+			eport_max,
+			address: ipmask.addr(),
+			mask: ipmask.netmask(),
+			iport_min,
+			iport_max,
+			#[cfg(feature = "regex")]
+			re,
+		};
+		trace!("perm rule added: {:?}", r);
+		Ok(r)
 	}
 }
 
@@ -99,6 +125,12 @@ fn match_permission(perm: &upnpperm, eport: u16, address: Ipv4Addr, iport: u16, 
 	}
 	if address & perm.mask != perm.address & perm.mask {
 		return false;
+	}
+	#[cfg(feature = "regex")]
+	if let Some(re) = &perm.re {
+		if !re.is_match(desc) {
+			return false;
+		}
 	}
 	true
 }
@@ -176,6 +208,17 @@ pub fn get_permitted_ext_ports(allowed: &mut AllowBitMap, permary: &[upnpperm], 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	impl PartialEq for upnpperm {
+		fn eq(&self, other: &upnpperm) -> bool {
+			self.type_0 == other.type_0
+				&& self.eport_min == other.eport_min
+				&& self.eport_max == other.eport_max
+				&& self.address == other.address
+				&& self.mask == other.mask
+				&& self.iport_min == other.iport_min
+				&& self.iport_max == other.iport_max
+		}
+	}
 	#[test]
 	fn test_upnpperm_parse() {
 		let allow = upnpperm::from_str("allow 1024-65535 0.0.0.0/0 1024-65535");
@@ -196,7 +239,7 @@ mod tests {
 				iport_min: 1024,
 				iport_max: 65535,
 				#[cfg(feature = "regex")]
-				re: "".to_string(),
+				re: None,
 			}
 		);
 		assert_eq!(
@@ -210,7 +253,7 @@ mod tests {
 				iport_min: 0,
 				iport_max: 65535,
 				#[cfg(feature = "regex")]
-				re: "".to_string(),
+				re: None,
 			}
 		);
 		assert!(upnpperm::from_str("allow 1024- 0.0.0.0/0 1024-65535").is_err());
@@ -235,7 +278,7 @@ mod tests {
 				iport_min: 0,
 				iport_max: 65535,
 				#[cfg(feature = "regex")]
-				re: "".to_string(),
+				re: None,
 			},
 			upnpperm {
 				type_0: UPNPPERM_DENY,
@@ -246,16 +289,38 @@ mod tests {
 				iport_min: 0,
 				iport_max: 65535,
 				#[cfg(feature = "regex")]
-				re: "".to_string(),
+				re: None,
 			},
 		];
-		assert_eq!(
-			check_upnp_rule_against_permissions(&perms, 1684, "192.168.1.2".parse().unwrap(), 1684, ""),
-			true
-		);
-		assert_eq!(
-			check_upnp_rule_against_permissions(&perms, 1000, "192.168.1.2".parse().unwrap(), 1684, ""),
-			false
-		);
+		assert!(check_upnp_rule_against_permissions(
+			&perms,
+			1684,
+			"192.168.1.2".parse().unwrap(),
+			1684,
+			""
+		),);
+		assert!(check_upnp_rule_against_permissions(
+			&perms,
+			1000,
+			"192.168.1.2".parse().unwrap(),
+			1684,
+			""
+		));
+	}
+	#[cfg(feature = "regex")]
+	#[test]
+	fn test_upnpperm_re() {
+		assert!(upnpperm::from_str("allow 1024-65535 0.0.0.0/0 1024-65535").is_ok());
+		let allow = upnpperm::from_str("allow 1024-65535 0.0.0.0/0 1024-65535 \"My evil app ver \\d.+\"");
+		assert!(allow.is_ok());
+		assert!(allow.unwrap().re.is_some());
+
+		// ignore not quoted pattern
+		let allow = upnpperm::from_str("allow 1024-65535 0.0.0.0/0 1024-65535 \"My evil app ver \\d.+").unwrap();
+		assert!(allow.re.is_none());
+
+		// ignore not quoted pattern
+		let allow = upnpperm::from_str("allow 1024-65535 0.0.0.0/0 1024-65535 My evil app ver \\d.+\"").unwrap();
+		assert!(allow.re.is_none());
 	}
 }
