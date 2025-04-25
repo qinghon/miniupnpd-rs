@@ -276,7 +276,7 @@ fn OpenAndConfHTTPSocket(v: &Options, port: &mut u16, ipv6: bool, runtime_flags:
 		SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, *port).into()
 	};
 	socket.bind(&listen_addr)?;
-	if v.listening_ip.len() == 1 && v.listening_ip[0].ifname.len() != 0 {
+	if v.listening_ip.len() == 1 && !v.listening_ip[0].ifname.is_empty() {
 		let _ = socket.bind_device(Some(v.listening_ip[0].ifname.as_bytes()));
 	}
 

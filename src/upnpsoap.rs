@@ -69,12 +69,10 @@ fn BuildSendAndCloseSoapResp(h: &mut upnphttp, body: &[u8]) {
 }
 fn GetConnectionTypeInfo(h: &mut upnphttp, action: &str, ns: &str) {
 	let body = format!(
-		"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <NewConnectionType>IP_Routed</NewConnectionType> \
-    <NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes> \
-    </u:{}Response>",
-		action, ns, action
+		"<u:{action}Response xmlns:u=\"{ns}\"> \
+        <NewConnectionType>IP_Routed</NewConnectionType> \
+        <NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes> \
+        </u:{action}Response>"
 	);
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
@@ -89,11 +87,10 @@ fn GetTotalBytesSent(h: &mut upnphttp, action: &str, ns: &str) {
 	BuildSendAndCloseSoapResp(
 		h,
 		format!(
-			"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <NewTotalBytesSent>{}</NewTotalBytesSent> \
-    </u:{}Response>",
-			action, ns, total_bytes_sent, action
+			"<u:{action}Response \
+            xmlns:u=\"{ns}\"> \
+            <NewTotalBytesSent>{total_bytes_sent}</NewTotalBytesSent> \
+            </u:{action}Response>",
 		)
 		.as_bytes(),
 	)
@@ -110,11 +107,10 @@ fn GetTotalBytesReceived(h: &mut upnphttp, action: &str, ns: &str) {
 	BuildSendAndCloseSoapResp(
 		h,
 		format!(
-			"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <NewTotalBytesReceived>{}</NewTotalBytesReceived> \
-    </u:{}Response>",
-			action, ns, total_bytes_received, action
+			"<u:{action}Response \
+            xmlns:u=\"{ns}\"> \
+            <NewTotalBytesReceived>{total_bytes_received}</NewTotalBytesReceived> \
+            </u:{action}Response>"
 		)
 		.as_bytes(),
 	)
@@ -131,11 +127,10 @@ fn GetTotalPacketsSent(h: &mut upnphttp, action: &str, ns: &str) {
 	BuildSendAndCloseSoapResp(
 		h,
 		format!(
-			"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <NewTotalPacketsSent>{}</NewTotalPacketsSent> \
-    </u:{}Response>",
-			action, ns, total_packets_sent, action
+			"<u:{action}Response \
+    xmlns:u=\"{ns}\"> \
+    <NewTotalPacketsSent>{total_packets_sent}</NewTotalPacketsSent> \
+    </u:{action}Response>"
 		)
 		.as_bytes(),
 	)
@@ -152,11 +147,9 @@ fn GetTotalPacketsReceived(h: &mut upnphttp, action: &str, ns: &str) {
 	BuildSendAndCloseSoapResp(
 		h,
 		format!(
-			"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <NewTotalPacketsReceived>{}</NewTotalPacketsReceived> \
-    </u:{}Response>",
-			action, ns, total_packets_received, action
+			"<u:{action}Response  xmlns:u=\"{ns}\"> \
+            <NewTotalPacketsReceived>{total_packets_received}</NewTotalPacketsReceived> \
+            </u:{action}Response>"
 		)
 		.as_bytes(),
 	)
@@ -191,14 +184,12 @@ fn GetCommonLinkProperties(h: &mut upnphttp, action: &str, ns: &str) {
 	BuildSendAndCloseSoapResp(
 		h,
 		format!(
-			"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <NewWANAccessType>{}</NewWANAccessType> \
-    <NewLayer1UpstreamMaxBitRate>{}</NewLayer1UpstreamMaxBitRate> \
-    <NewLayer1DownstreamMaxBitRate>{}</NewLayer1DownstreamMaxBitRate> \
-    <NewPhysicalLinkStatus>{}</NewPhysicalLinkStatus> \
-    </u:{}Response>",
-			action, ns, wan_access_type, upstream_bitrate, downstream_bitrate, status, action
+			"<u:{action}Response xmlns:u=\"{ns}\"> \
+            <NewWANAccessType>{wan_access_type}</NewWANAccessType> \
+            <NewLayer1UpstreamMaxBitRate>{upstream_bitrate}</NewLayer1UpstreamMaxBitRate> \
+            <NewLayer1DownstreamMaxBitRate>{downstream_bitrate}</NewLayer1DownstreamMaxBitRate> \
+            <NewPhysicalLinkStatus>{status}</NewPhysicalLinkStatus> \
+            </u:{action}Response>"
 		)
 		.as_bytes(),
 	)
@@ -208,21 +199,16 @@ fn GetStatusInfo(h: &mut upnphttp, action: &str, ns: &str) {
 	let op = global_option.get().unwrap();
 	let ext_if_name = &op.ext_ifname;
 	let status = get_wan_connection_status_str(ext_if_name);
-	let uptime = upnp_get_uptime();
+	let uptime = upnp_get_uptime().as_secs();
 
 	BuildSendAndCloseSoapResp(
 		h,
 		format!(
-			"<u:{}Response xmlns:u=\"{}\"> \
-                                      <NewConnectionStatus>{}</NewConnectionStatus> \
-                                      <NewLastConnectionError>ERROR_NONE</NewLastConnectionError> \
-                                      <NewUptime>{}</NewUptime> \
-                                      </u:{}Response>",
-			action,
-			ns,
-			status,
-			uptime.as_secs() as i64,
-			action
+			"<u:{action}Response xmlns:u=\"{ns}\"> \
+            <NewConnectionStatus>{status}</NewConnectionStatus> \
+            <NewLastConnectionError>ERROR_NONE</NewLastConnectionError> \
+            <NewUptime>{uptime}</NewUptime> \
+            </u:{action}Response>",
 		)
 		.as_bytes(),
 	)
@@ -232,11 +218,10 @@ fn GetNATRSIPStatus(h: &mut upnphttp, action: &str, ns: &str) {
 	BuildSendAndCloseSoapResp(
 		h,
 		format!(
-			"<u:{}Response xmlns:u=\"{}\"> \
-                                      <NewRSIPAvailable>0</NewRSIPAvailable> \
-                                      <NewNATEnabled>1</NewNATEnabled> \
-                                      </u:{}Response>",
-			action, ns, action
+			"<u:{action}Response xmlns:u=\"{ns}\"> \
+            <NewRSIPAvailable>0</NewRSIPAvailable> \
+            <NewNATEnabled>1</NewNATEnabled> \
+            </u:{action}Response>",
 		)
 		.as_bytes(),
 	)
@@ -295,9 +280,8 @@ fn GetExternalIPAddress(h: &mut upnphttp, action: &str, ns: &str) {
 		h,
 		format!(
 			"<u:{action}Response xmlns:u=\"{ns}\"> \
-                                      <NewExternalIPAddress>{}</NewExternalIPAddress> \
-                                      </u:{action}Response>",
-			ext_ip_addr
+            <NewExternalIPAddress>{ext_ip_addr}</NewExternalIPAddress> \
+            </u:{action}Response>"
 		)
 		.as_bytes(),
 	)
@@ -575,8 +559,8 @@ fn AddAnyPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 		1 => SoapError(h, 728, "NoPortMapsAvailable"),
 		0 => {
 			let body = format!(
-				"<u:{}Response xmlns:u=\"{}\"><NewReservedPort>{}</NewReservedPort></u:{}Response>",
-				action, ns, eport, action
+				"<u:{action}Response xmlns:u=\"{ns}\"><NewReservedPort>{}</NewReservedPort></u:{action}Response>",
+				eport,
 			);
 			BuildSendAndCloseSoapResp(h, body.as_bytes());
 		}
@@ -634,12 +618,12 @@ fn GetSpecificPortMappingEntry(h: &mut upnphttp, action: &str, ns: &str) {
 
 		let body = format!(
 			"<u:{action}Response xmlns:u=\"{ns}\">\
-		<NewInternalPort>{}</NewInternalPort>\
-		<NewInternalClient>{}</NewInternalClient>\
-		<NewEnabled>1</NewEnabled>\
-		<NewPortMappingDescription>{}</NewPortMappingDescription>\
-		<NewLeaseDuration>{}</NewLeaseDuration>\
-		</u:{action}Response>",
+			<NewInternalPort>{}</NewInternalPort>\
+			<NewInternalClient>{}</NewInternalClient>\
+			<NewEnabled>1</NewEnabled>\
+			<NewPortMappingDescription>{}</NewPortMappingDescription>\
+			<NewLeaseDuration>{}</NewLeaseDuration>\
+			</u:{action}Response>",
 			r.dport,
 			r.daddr,
 			r.desc.unwrap_or_default(),
@@ -687,7 +671,7 @@ fn DeletePortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	if r < 0 {
 		SoapError(h, 714, "NoSuchEntryInArray");
 	} else {
-		let body = format!("<u:{}Response xmlns:u=\"{}\"> </u:{}Response>", action, ns, action);
+		let body = format!("<u:{action}Response xmlns:u=\"{ns}\"> </u:{action}Response>",);
 		BuildSendAndCloseSoapResp(h, body.as_bytes());
 	}
 }
@@ -741,7 +725,7 @@ fn DeletePortMappingRange(h: &mut upnphttp, action: &str, ns: &str) {
 		return;
 	}
 
-	let body = format!("<u:{}Response xmlns:u=\"{}\"> </u:{}Response>", action, ns, action);
+	let body = format!("<u:{action}Response xmlns:u=\"{ns}\"> </u:{action}Response>",);
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
 
@@ -772,15 +756,15 @@ fn GetGenericPortMappingEntry(h: &mut upnphttp, action: &str, ns: &str) {
 	if let Some(r) = upnp_get_redirection_infos_by_index(&rt.nat_impl, index as usize) {
 		let body = format!(
 			"<u:{action}Response xmlns:u=\"{ns}\"> \
-    <NewRemoteHost>{}</NewRemoteHost> \
-    <NewExternalPort>{}</NewExternalPort> \
-    <NewProtocol>{}</NewProtocol> \
-    <NewInternalPort>{}</NewInternalPort> \
-    <NewInternalClient>{}</NewInternalClient> \
-    <NewEnabled>1</NewEnabled> \
-    <NewPortMappingDescription>{}</NewPortMappingDescription> \
-    <NewLeaseDuration>{}</NewLeaseDuration> \
-    </u:{action}Response>",
+            <NewRemoteHost>{}</NewRemoteHost> \
+            <NewExternalPort>{}</NewExternalPort> \
+            <NewProtocol>{}</NewProtocol> \
+            <NewInternalPort>{}</NewInternalPort> \
+            <NewInternalClient>{}</NewInternalClient> \
+            <NewEnabled>1</NewEnabled> \
+            <NewPortMappingDescription>{}</NewPortMappingDescription> \
+            <NewLeaseDuration>{}</NewLeaseDuration> \
+            </u:{action}Response>",
 			r.daddr,
 			r.dport,
 			r.proto,
@@ -837,8 +821,7 @@ fn GetListOfPortMappings(h: &mut upnphttp, action: &str, ns: &str) {
 
 	let mut body = String::with_capacity(4096);
 	body.write_fmt(format_args!(
-		"<u:{}Response xmlns:u=\"{}\"><NewPortListing><![CDATA[",
-		action, ns
+		"<u:{action}Response xmlns:u=\"{ns}\"><NewPortListing><![CDATA[",
 	))
 	.unwrap();
 
@@ -912,7 +895,6 @@ fn SetDefaultConnectionService(h: &mut upnphttp, action: &str, ns: &str) {
 fn GetDefaultConnectionService(h: &mut upnphttp, action: &str, ns: &str) {
 	// Example: uuid:44f5824f-c57d-418c-a131-f22b34e14111:WANConnectionDevice:1,
 	// urn:upnp-org:serviceId:WANPPPConn1
-	// bodylen = snprintf(&mut body[bodylen..], body.len() - bodylen, resp, action, ns, uuidvalue_wcd, action);
 	let body = format!(
 		"<u:{action}Response xmlns:u=\"{ns}\">\
 		<NewDefaultConnectionService>{}:WANConnectionDevice:{},{SERVICE_ID_WANIPC}</NewDefaultConnectionService>\
@@ -964,11 +946,9 @@ fn QueryStateVariable(h: &mut upnphttp, action: &str, ns: &str) {
 				BuildSendAndCloseSoapResp(
 					h,
 					format!(
-						"<u:{}Response \
-                                                      xmlns:u=\"{}\"> \
-                                                      <return>{}</return> \
-                                                      </u:{}Response>",
-						action, ns, status, action
+						"<u:{action}Response xmlns:u=\"{ns}\"> \
+                        <return>{status}</return> \
+                        </u:{action}Response>",
 					)
 					.as_bytes(),
 				)
@@ -980,11 +960,9 @@ fn QueryStateVariable(h: &mut upnphttp, action: &str, ns: &str) {
 				BuildSendAndCloseSoapResp(
 					h,
 					format!(
-						"<u:{}Response \
-                                                      xmlns:u=\"{}\"> \
-                                                      <return>{}</return> \
-                                                      </u:{}Response>",
-						action, ns, num, action
+						"<u:{action}Response xmlns:u=\"{ns}\"> \
+                        <return>{num}</return> \
+                        </u:{action}Response>"
 					)
 					.as_bytes(),
 				)
@@ -1012,12 +990,10 @@ fn GetFirewallStatus(h: &mut upnphttp, action: &str, ns: &str) {
 	BuildSendAndCloseSoapResp(
 		h,
 		format!(
-			"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <FirewallEnabled>{}</FirewallEnabled> \
-    <InboundPinholeAllowed>{}</InboundPinholeAllowed> \
-    </u:{}Response>",
-			action, ns, firewall_enabled, inbound_pinhole_allowed, action
+			"<u:{action}Response xmlns:u=\"{ns}\"> \
+            <FirewallEnabled>{firewall_enabled}</FirewallEnabled> \
+            <InboundPinholeAllowed>{inbound_pinhole_allowed}</InboundPinholeAllowed> \
+            </u:{action}Response>"
 		)
 		.as_bytes(),
 	)
@@ -1254,7 +1230,7 @@ fn UpdatePinhole(h: &mut upnphttp, action: &str, ns: &str) {
 		-1 => SoapError(h, 704, "NoSuchEntry"),
 		_ if n < 0 => SoapError(h, 501, "Action Failed"),
 		_ => {
-			let body = format!("<u:{}Response xmlns:u=\"{}\"> </u:{}Response>", action, ns, action);
+			let body = format!("<u:{action}Response xmlns:u=\"{ns}\"> </u:{action}Response>",);
 			BuildSendAndCloseSoapResp(h, body.as_bytes());
 		}
 	}
@@ -1300,11 +1276,9 @@ fn GetOutboundPinholeTimeout(h: &mut upnphttp, action: &str, ns: &str) {
 		1 => {
 			let opt = 0; // Placeholder for the actual timeout value
 			let body = format!(
-				"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <OutboundPinholeTimeout>{}</OutboundPinholeTimeout> \
-    </u:{}Response>",
-				action, ns, opt, action
+				"<u:{action}Response xmlns:u=\"{ns}\"> \
+                <OutboundPinholeTimeout>{opt}</OutboundPinholeTimeout> \
+                </u:{action}Response>"
 			);
 			BuildSendAndCloseSoapResp(h, body.as_bytes());
 		}
@@ -1348,7 +1322,7 @@ fn DeletePinhole(h: &mut upnphttp, action: &str, ns: &str) {
 
 	info!("{}: (inbound) pinhole with ID {} successfully removed", action, uid);
 
-	let body = format!("<u:{}Response     xmlns:u=\"{}\"> </u:{}Response>", action, ns, action);
+	let body = format!("<u:{action}Response xmlns:u=\"{ns}\"></u:{action}Response>",);
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
 fn CheckPinholeWorking(h: &mut upnphttp, action: &str, ns: &str) {
@@ -1407,8 +1381,8 @@ fn GetPinholePackets(h: &mut upnphttp, action: &str, ns: &str) {
 		}
 		let body = format!(
 			"<u:{action}Response xmlns:u=\"{ns}\"> \
-    <PinholePackets>{}</PinholePackets> \
-    </u:{action}Response>",
+            <PinholePackets>{}</PinholePackets> \
+            </u:{action}Response>",
 			n.packets
 		);
 		BuildSendAndCloseSoapResp(h, body.as_bytes());
@@ -1434,14 +1408,12 @@ fn SendSetupMessage(h: &mut upnphttp, action: &str, ns: &str) {
 		return;
 	}
 
-	let out_message = ""; // Placeholder for WPS output message
+	const out_message: &str = ""; // Placeholder for WPS output message
 
 	let body = format!(
-		"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <OutMessage>{}</OutMessage> \
-    </u:{}Response>",
-		action, ns, out_message, action
+		"<u:{action}Response  xmlns:u=\"{ns}\"> \
+        <OutMessage>{out_message}</OutMessage> \
+        </u:{action}Response>"
 	);
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
@@ -1457,11 +1429,9 @@ fn GetSupportedProtocols(h: &mut upnphttp, action: &str, ns: &str) {
 </SupportedProtocols>"#;
 
 	let body = format!(
-		"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <ProtocolList><![CDATA[{}]]></ProtocolList> \
-    </u:{}Response>",
-		action, ns, PROTOCOL_LIST, action
+		"<u:{action}Response  xmlns:u=\"{ns}\"> \
+        <ProtocolList><![CDATA[{PROTOCOL_LIST}]]></ProtocolList> \
+        </u:{action}Response>",
 	);
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
@@ -1483,11 +1453,9 @@ fn GetAssignedRoles(h: &mut upnphttp, action: &str, ns: &str) {
 	}
 
 	let body = format!(
-		"<u:{}Response \
-    xmlns:u=\"{}\"> \
-    <RoleList>{}</RoleList> \
-    </u:{}Response>",
-		action, ns, role_list, action
+		"<u:{action}Response xmlns:u=\"{ns}\"> \
+        <RoleList>{role_list}</RoleList> \
+        </u:{action}Response>"
 	);
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
@@ -1567,22 +1535,21 @@ pub fn ExecuteSoapAction(h: &mut upnphttp) {
 pub fn SoapError(h: &mut upnphttp, errCode: i32, errDesc: &str) {
 	let body = format!(
 		"<s:Envelope \
-    xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" \
-    s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\
-    <s:Body>\
-    <s:Fault>\
-    <faultcode>s:Client</faultcode>\
-    <faultstring>UPnPError</faultstring>\
-    <detail>\
-    <UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\">\
-    <errorCode>{}</errorCode>\
-    <errorDescription>{}</errorDescription>\
-    </UPnPError>\
-    </detail>\
-    </s:Fault>\
-    </s:Body>\
-    </s:Envelope>",
-		errCode, errDesc
+        xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" \
+        s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\
+        <s:Body>\
+        <s:Fault>\
+        <faultcode>s:Client</faultcode>\
+        <faultstring>UPnPError</faultstring>\
+        <detail>\
+        <UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\">\
+        <errorCode>{errCode}</errorCode>\
+        <errorDescription>{errDesc}</errorDescription>\
+        </UPnPError>\
+        </detail>\
+        </s:Fault>\
+        </s:Body>\
+        </s:Envelope>"
 	);
 	info!("Returning UPnPError {}: {}", errCode, errDesc);
 

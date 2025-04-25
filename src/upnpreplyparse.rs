@@ -99,7 +99,7 @@ pub fn ParseNameValue(buffer: &str, data: &mut NameValueParserData) {
 		starteltfunc: NameValueParserStartElt,
 		endeltfunc: NameValueParserEndElt,
 		datafunc: NameValueParserGetData,
-		attfunc: None::<fn(&mut NameValueParserData, &str, &str)>,
+		attfunc: None,
 	};
 
 	parsexml(&mut parser);

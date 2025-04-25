@@ -1,29 +1,20 @@
 use crate::upnpreplyparse::NameValueParserData;
 
-pub struct xmlparser<'a, F, G, H, I>
-where
-	F: FnMut(&mut NameValueParserData, &str),
-	G: FnMut(&mut NameValueParserData, &str),
-	H: FnMut(&mut NameValueParserData, &str),
-	I: FnMut(&mut NameValueParserData, &str, &str),
-{
+type XmlCbFn = fn(&mut NameValueParserData, &str);
+pub(crate) type XmlCbAttFn = fn(&mut NameValueParserData, &str, &str);
+
+pub struct xmlparser<'a> {
 	pub xmlstart: &'a str,
 	// pub xmlend: *const libc::c_char,
 	pub xml: &'a str,
 	// pub xmlsize: i32,
 	pub data: &'a mut NameValueParserData,
-	pub starteltfunc: F,
-	pub endeltfunc: G,
-	pub datafunc: H,
-	pub attfunc: Option<I>,
+	pub starteltfunc: XmlCbFn,
+	pub endeltfunc: XmlCbFn,
+	pub datafunc: XmlCbFn,
+	pub attfunc: Option<XmlCbAttFn>,
 }
-fn parseatt<F, G, H, I>(p: &mut xmlparser<F, G, H, I>) -> i32
-where
-	F: FnMut(&mut NameValueParserData, &str),
-	G: FnMut(&mut NameValueParserData, &str),
-	H: FnMut(&mut NameValueParserData, &str),
-	I: FnMut(&mut NameValueParserData, &str, &str),
-{
+fn parseatt(p: &mut xmlparser) -> i32 {
 	let mut xml = p.xml;
 	let mut sep;
 	let mut attvalue;
@@ -91,13 +82,7 @@ where
 	}
 	-1
 }
-fn parseelt<F, G, H, I>(p: &mut xmlparser<F, G, H, I>)
-where
-	F: FnMut(&mut NameValueParserData, &str),
-	G: FnMut(&mut NameValueParserData, &str),
-	H: FnMut(&mut NameValueParserData, &str),
-	I: FnMut(&mut NameValueParserData, &str, &str),
-{
+fn parseelt(p: &mut xmlparser) {
 	let mut xml = p.xml;
 
 	while !xml.is_empty() {
@@ -200,13 +185,7 @@ where
 	}
 }
 
-pub fn parsexml<F, G, H, I>(parser: &mut xmlparser<F, G, H, I>)
-where
-	F: FnMut(&mut NameValueParserData, &str),
-	G: FnMut(&mut NameValueParserData, &str),
-	H: FnMut(&mut NameValueParserData, &str),
-	I: FnMut(&mut NameValueParserData, &str, &str),
-{
+pub fn parsexml(parser: &mut xmlparser) {
 	parser.xml = parser.xmlstart;
 	// parser.xmlend = ((*parser).xmlstart).offset((*parser).xmlsize as isize);
 	parseelt(parser);

@@ -19,7 +19,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-pub const DEFAULT_MINISSDP_DSOCKET_PATH: &'static str = "/var/run/minissdpd.sock";
+pub const DEFAULT_MINISSDP_DSOCKET_PATH: &str = "/var/run/minissdpd.sock";
 #[cfg(feature = "https")]
 pub const DEFAULT_HTTPS_CERT: &CStr = c"/etc/miniupnpd/certificate.pem";
 pub const DEFAULT_HTTPS_KEY: &CStr = c"/etc/miniupnpd/private-key.pem";

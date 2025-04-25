@@ -1069,7 +1069,7 @@ pub fn ProcessIncomingPCPPacket(
 
 #[cfg(feature = "ipv6")]
 pub fn OpenAndConfPCPv6Socket(v: &Options) -> io::Result<socket2::Socket> {
-	use std::ffi::CString;
+	
 	// Create a new IPv6 UDP socket
 	let socket = Socket::new(
 		socket2::Domain::IPV6,
@@ -1084,7 +1084,7 @@ pub fn OpenAndConfPCPv6Socket(v: &Options) -> io::Result<socket2::Socket> {
 		warn!("OpenAndConfPCPv6Socket: set_only_v6(true): {}", e);
 	}
 	if v.listening_ip.len() == 1 {
-		let ifname = CString::new((&v.listening_ip[0]).ifname.as_str()).unwrap();
+		let ifname = v.listening_ip[0].ifname;
 		if let Err(e) = socket.bind_device(Some(ifname.as_bytes())) {
 			warn!(
 				"OpenAndConfPCPv6Socket: udp6 bindtodevice {}: {}",
