@@ -2,7 +2,7 @@ use crate::log;
 use crate::warp::FdSet;
 use std::cell::RefCell;
 use std::cmp::PartialEq;
-use std::mem::MaybeUninit;
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::os::fd::AsRawFd;
 use std::rc::Rc;
@@ -44,7 +44,7 @@ pub struct upnp_event_notify {
 	// pub buffersize: i32,
 	pub tosend: i32,
 	pub sent: i32,
-	pub path: Option<String>,
+	pub path: Option<Rc<str>>,
 	// pub ipv6: i32,
 	pub addrstr: SocketAddr,
 	// pub portstr: u16,
@@ -84,7 +84,14 @@ fn newSubscriber(eventurl: &str, callback: &str) -> Option<subscriber> {
 	};
 
 	let uuid = UUID::generate();
-	Some(subscriber { notify: None, timeout: Instant::now(), seq: 0, service: state, uuid, callback: Rc::from("") })
+	Some(subscriber {
+		notify: None,
+		timeout: Instant::now(),
+		seq: 0,
+		service: state,
+		uuid,
+		callback: Rc::from(callback),
+	})
 }
 
 pub fn upnpevents_addSubscriber<'a>(
@@ -219,7 +226,7 @@ fn upnp_event_notify_connect(obj: &mut upnp_event_notify) {
 	let sock = socket.unwrap();
 
 	obj.addrstr = sock;
-	obj.path = if let Some(p) = path { Some(p.to_string()) } else { None };
+	obj.path = if let Some(p) = path { Some(p.into()) } else { None };
 
 	debug!("upnp_event_notify_connect: '{}' '{}'", sock, path.unwrap_or_default());
 
@@ -262,7 +269,9 @@ fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
 	let xml = xml.unwrap();
 
 	let path = obj.path.as_deref().unwrap_or("/");
-	let msg = format!(
+	obj.buffer.reserve(1024);
+	obj.buffer.clear();
+	let _ = obj.buffer.write_fmt(format_args!(
 		"NOTIFY {path} HTTP/1.1\r\n\
         Host: {}\r\n\
         Content-Type: text/xml; charset=\"utf-8\"\r\n\
@@ -279,18 +288,16 @@ fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
 		xml.len() + 2,
 		obj.sub.borrow().uuid,
 		obj.sub.borrow().seq,
-	);
+	));
 
-	// 设置buffer和状态
-	obj.tosend = msg.len() as i32;
-	obj.buffer = msg.into_bytes();
+	obj.tosend = obj.buffer.len() as i32;
 	obj.state = ESending;
 }
 fn upnp_event_send(obj: &mut upnp_event_notify) {
 	debug!("upnp_event_send: sending event notify message to {}", obj.addrstr);
 	debug!(
 		"upnp_event_send: msg: {}",
-		String::from_utf8_lossy(&obj.buffer[obj.sent as usize..])
+		str::from_utf8(&obj.buffer[obj.sent as usize..]).unwrap()
 	);
 
 	match obj.s.send(&obj.buffer[obj.sent as usize..obj.tosend as usize]) {
@@ -314,10 +321,13 @@ fn upnp_event_send(obj: &mut upnp_event_notify) {
 	}
 }
 fn upnp_event_recv(obj: &mut upnp_event_notify) {
-	match obj
-		.s
-		.recv(unsafe { mem::transmute::<&mut [u8], &mut [MaybeUninit<u8>]>(obj.buffer.as_mut_slice()) })
-	{
+	if obj.buffer.len() < 1024 {
+		obj.buffer.resize(1024, 0);
+	} else {
+		obj.buffer.resize(obj.buffer.capacity(), 0);
+	}
+
+	match obj.s.recv(unsafe { mem::transmute(obj.buffer.as_mut_slice()) }) {
 		Err(e) => {
 			if e.kind() != io::ErrorKind::WouldBlock && e.kind() != io::ErrorKind::Interrupted {
 				error!("upnp_event_recv: recv(): {}", e);
@@ -328,12 +338,12 @@ fn upnp_event_recv(obj: &mut upnp_event_notify) {
 			debug!(
 				"upnp_event_recv: ({} bytes) {}",
 				n,
-				String::from_utf8_lossy(&obj.buffer[..n])
+				str::from_utf8(&obj.buffer[..n]).unwrap()
 			);
 
 			// TODO: 可能需要接收更多字节
 			// 目前接收的字节数n被忽略了
-
+			unsafe { obj.buffer.set_len(n) };
 			obj.state = EFinished;
 			obj.sub.borrow_mut().seq += 1;
 		}
@@ -388,39 +398,34 @@ pub fn upnpevents_selectfds(
 	writeset: &mut FdSet,
 	max_fd: &mut i32,
 ) {
-	// 遍历Vec中的每个notify对象
 	for obj in notifylist.iter_mut() {
-		debug!(
-			"upnpevents_selectfds: {:p} {} {}",
-			obj,
-			obj.state as u32,
-			obj.s.as_raw_fd()
-		);
-
 		let fd = obj.s.as_raw_fd();
-		if fd >= 0 {
-			match obj.state {
-				ECreated => {
-					upnp_event_notify_connect(obj);
-					if obj.state != EConnecting {
-						continue;
-					}
-					// 故意不使用break,继续执行下面的EConnecting逻辑
+		debug!("upnpevents_selectfds: {:p} {} {}", obj, obj.state as u32, fd);
+
+		match obj.state {
+			ECreated => {
+				upnp_event_notify_connect(obj);
+				if obj.state != EConnecting {
+					continue;
 				}
-				EConnecting | ESending => {
-					writeset.set(fd);
-					if fd > *max_fd {
-						*max_fd = fd;
-					}
+				writeset.set(fd);
+				if fd > *max_fd {
+					*max_fd = fd;
 				}
-				EWaitingForResponse => {
-					readset.set(fd);
-					if fd > *max_fd {
-						*max_fd = fd;
-					}
-				}
-				_ => {}
 			}
+			EConnecting | ESending => {
+				writeset.set(fd);
+				if fd > *max_fd {
+					*max_fd = fd;
+				}
+			}
+			EWaitingForResponse => {
+				readset.set(fd);
+				if fd > *max_fd {
+					*max_fd = fd;
+				}
+			}
+			_ => {}
 		}
 	}
 }

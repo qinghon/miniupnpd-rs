@@ -1069,7 +1069,6 @@ pub fn ProcessIncomingPCPPacket(
 
 #[cfg(feature = "ipv6")]
 pub fn OpenAndConfPCPv6Socket(v: &Options) -> io::Result<socket2::Socket> {
-	
 	// Create a new IPv6 UDP socket
 	let socket = Socket::new(
 		socket2::Domain::IPV6,
