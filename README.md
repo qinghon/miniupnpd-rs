@@ -87,7 +87,7 @@ if real need , tell me I can roll back
 - `HAS_DUMMY_SERVICE`: only use `ENABLE_L3F_SERVICE`
 - `SSDP_PACKET_MAX_LEN`: no limit for String impl
 - `HAVE_IP_MREQN`: force enabled, base on rust cannot support [linux<3.2](https://doc.rust-lang.org/nightly/rustc/platform-support.html) 
-- `ENABLE_NATPMP`: force enabled, pmp/pcp is a really simple and suit protocol for the nat firewall , won't close it unless there is enough reason
+- `ENABLE_NATPMP`: force enabled, nat-pmp/pcp is a really simple and suit protocol for the nat firewall , won't close it unless there is enough reason
 - `USE_DAEMON`: use dynamic flag
 - `ENABLE_LEASEFILE`: force enabled
 - `ENABLE_L3F_SERVICE`: force enabled

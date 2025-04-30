@@ -37,7 +37,7 @@ strict = []
 portinuse = []
 
 multiple_ext_ip = []
-nfqueue = []
+#nfqueue = []
 #ifacewatcher = []
 regex = ["dep:regex-lite"]
 _dp_service = []

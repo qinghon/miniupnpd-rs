@@ -691,10 +691,10 @@ fn init(
 				option.https_port = u16::from_str(&args[idx + 1]).unwrap();
 			}
 
-			#[cfg(feature = "nfqueue")]
-			b'Q' => {}
-			#[cfg(feature = "nfqueue")]
-			b'n' => {}
+			// #[cfg(feature = "nfqueue")]
+			// b'Q' => {}
+			// #[cfg(feature = "nfqueue")]
+			// b'n' => {}
 			b'P' => {
 				pidfilename.clear();
 				pidfilename.push_str(&args[idx + 1]);

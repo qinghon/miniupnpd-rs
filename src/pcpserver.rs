@@ -151,6 +151,22 @@ pub struct pcp_info<'a> {
 	pub is_fw: bool,
 	pub desc: Option<String>,
 	pub rt: Option<&'a mut RtOptions>,
+
+	#[cfg(feature = "pcp_sadscp")]
+	pub delay_tolerance: u8,
+	#[cfg(feature = "pcp_sadscp")]
+	pub loss_tolerance: u8,
+	#[cfg(feature = "pcp_sadscp")]
+	pub jitter_tolerance: u8,
+	#[cfg(feature = "pcp_sadscp")]
+	pub app_name: Rc<str>,
+	#[cfg(feature = "pcp_sadscp")]
+	pub sadscp_dscp: u8,
+	#[cfg(feature = "pcp_sadscp")]
+	pub matched_name: bool,
+	#[cfg(feature = "pcp_sadscp")]
+	pub is_sadscp_op: bool,
+
 	#[cfg(feature = "pcp_flowp")]
 	dscp_up: u8,
 	#[cfg(feature = "pcp_flowp")]
@@ -185,6 +201,22 @@ impl Default for pcp_info<'_> {
 			is_fw: false,
 			desc: None,
 			rt: None,
+
+			#[cfg(feature = "pcp_sadscp")]
+			delay_tolerance: 0,
+			#[cfg(feature = "pcp_sadscp")]
+			loss_tolerance: 0,
+			#[cfg(feature = "pcp_sadscp")]
+			jitter_tolerance: 0,
+			#[cfg(feature = "pcp_sadscp")]
+			app_name: Rc::from(""),
+			#[cfg(feature = "pcp_sadscp")]
+			sadscp_dscp: 0,
+			#[cfg(feature = "pcp_sadscp")]
+			matched_name: false,
+			#[cfg(feature = "pcp_sadscp")]
+			is_sadscp_op: false,
+
 			#[cfg(feature = "pcp_flowp")]
 			dscp_up: 0,
 			#[cfg(feature = "pcp_flowp")]
@@ -288,6 +320,25 @@ fn parsePCPPEER_version2(buf: &[u8], pcp_msg_info: &mut pcp_info) {
 	copy_from_slice(&mut pcp_msg_info.ext_ip, &buf[20..36]);
 	#[cfg(feature = "pcp_peer")]
 	copy_from_slice(&mut pcp_msg_info.peer_ip, &buf[40..56]);
+}
+
+#[cfg(feature = "pcp_sadscp")]
+fn parseSADSCP(buf: &[u8], pcp_msg_info: &mut pcp_info) {
+	pcp_msg_info.delay_tolerance = (buf[12] >> 6) & 3;
+	pcp_msg_info.loss_tolerance = (buf[12] >> 4) & 3;
+	pcp_msg_info.jitter_tolerance = (buf[12] >> 2) & 3;
+
+	if pcp_msg_info.delay_tolerance == 3 || pcp_msg_info.loss_tolerance == 3 || pcp_msg_info.jitter_tolerance == 3 {
+		pcp_msg_info.result_code = PCP_ERR_MALFORMED_REQUEST;
+		return;
+	}
+	let app_name_len = buf[13];
+	if let Ok(s) = str::from_utf8(&buf[14..14 + app_name_len as usize]) {
+		pcp_msg_info.app_name = Rc::from(s);
+	} else {
+		pcp_msg_info.result_code = PCP_ERR_MALFORMED_REQUEST;
+		return;
+	}
 }
 
 fn parsePCPOption(pcp_buf: &[u8], remain: i32, pcp_msg_info: &mut pcp_info) -> i32 {
@@ -851,6 +902,41 @@ fn getPCPOpCodeStr(p0: u8) -> &'static str {
 		_ => "UNKNOWN",
 	}
 }
+#[cfg(feature = "pcp_sadscp")]
+fn get_dscp_value(pcp_info: &mut pcp_info) {
+	let op = global_option.get().unwrap();
+	for dscp in &op.dscp_value {
+		if pcp_info.app_name == dscp.app_name
+			&& pcp_info.delay_tolerance == dscp.delay
+			&& pcp_info.loss_tolerance == dscp.loss
+			&& pcp_info.jitter_tolerance == dscp.jitter
+		{
+			pcp_info.sadscp_dscp = dscp.value;
+			pcp_info.matched_name = true;
+			return;
+		} else if dscp.app_name.is_empty()
+			&& pcp_info.app_name.is_empty()
+			&& pcp_info.delay_tolerance == dscp.delay
+			&& pcp_info.loss_tolerance == dscp.loss
+			&& pcp_info.jitter_tolerance == dscp.jitter
+		{
+			pcp_info.sadscp_dscp = dscp.value;
+			pcp_info.matched_name = false;
+			return;
+		} else if dscp.app_name.is_empty()
+			&& pcp_info.delay_tolerance == dscp.delay
+			&& pcp_info.loss_tolerance == dscp.loss
+			&& pcp_info.jitter_tolerance == dscp.jitter
+		{
+			pcp_info.sadscp_dscp = dscp.value;
+			pcp_info.matched_name = false;
+		}
+	}
+
+	pcp_info.sadscp_dscp = 0;
+	pcp_info.matched_name = false;
+}
+
 #[cfg(feature = "pcp")]
 fn processPCPRequest(req: &[u8], pcp_msg_info: &mut pcp_info) -> i32 {
 	pcp_msg_info.result_code = 0;
@@ -920,6 +1006,27 @@ fn processPCPRequest(req: &[u8], pcp_msg_info: &mut pcp_info) -> i32 {
 					return pcp_msg_info.result_code as i32;
 				}
 			}
+			#[cfg(feature = "pcp_sadscp")]
+			PCP_OPCODE_SADSCP => {
+				remaining_size -= PCP_SADSCP_REQ_SIZE as i32;
+				if remaining_size < 0 {
+					pcp_msg_info.result_code = PCP_ERR_MALFORMED_REQUEST;
+					return pcp_msg_info.result_code as i32;
+				}
+				remaining_size -= req[13] as i32;
+				if remaining_size < 0 {
+					pcp_msg_info.result_code = PCP_ERR_MALFORMED_REQUEST;
+					return pcp_msg_info.result_code as i32;
+				}
+				parseSADSCP(req, pcp_msg_info);
+
+				if pcp_msg_info.result_code != 0 {
+					return pcp_msg_info.result_code as i32;
+				}
+				req = &req[PCP_SADSCP_REQ_SIZE as usize + pcp_msg_info.app_name.len()..];
+
+				get_dscp_value(pcp_msg_info);
+			}
 			_ => {
 				pcp_msg_info.result_code = PCP_ERR_UNSUPP_OPCODE;
 			}
@@ -959,6 +1066,13 @@ fn processPCPRequest(req: &[u8], pcp_msg_info: &mut pcp_info) -> i32 {
 }
 
 fn createPCPResponse(response: &mut [u8], pcp_msg_info: &mut pcp_info) {
+	macro_rules! copy_to_response {
+		($response:expr, $base:expr, $offset:expr, $value:expr) => {
+			let start: usize = $base as usize + $offset as usize;
+			let end: usize = start + $value.len();
+			$response[start..end].copy_from_slice($value);
+		};
+	}
 	response[2] = 0;
 	response[12..24].copy_from_slice(&[0u8; 12]);
 	if pcp_msg_info.result_code == PCP_ERR_UNSUPP_VERSION {
@@ -997,25 +1111,89 @@ fn createPCPResponse(response: &mut [u8], pcp_msg_info: &mut pcp_info) {
 			response[7] = 30;
 		}
 		PCP_SUCCESS | _ => {
-			response[4..8].copy_from_slice(pcp_msg_info.lifetime.to_be_bytes().as_ref());
+			copy_to_response!(response, 0, 4, &pcp_msg_info.lifetime.to_be_bytes());
 		}
 	}
 	if response[1] == 0x81 {
 		if response[0] == 1 {
-			response[PCP_COMMON_RESPONSE_SIZE as usize + 4..PCP_COMMON_RESPONSE_SIZE as usize + 6]
-				.copy_from_slice(pcp_msg_info.int_port.to_be_bytes().as_ref());
-			response[PCP_COMMON_RESPONSE_SIZE as usize + 6..PCP_COMMON_RESPONSE_SIZE as usize + 8]
-				.copy_from_slice(pcp_msg_info.ext_port.to_be_bytes().as_ref());
-			response[PCP_COMMON_RESPONSE_SIZE as usize + 8..PCP_COMMON_RESPONSE_SIZE as usize + 24]
-				.copy_from_slice(pcp_msg_info.ext_ip.as_octets());
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				4,
+				&pcp_msg_info.int_port.to_be_bytes()
+			);
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				6,
+				&pcp_msg_info.ext_port.to_be_bytes()
+			);
+			copy_to_response!(response, PCP_COMMON_RESPONSE_SIZE, 8, pcp_msg_info.ext_ip.as_octets());
 		} else if response[1] == 2 {
-			response[PCP_COMMON_RESPONSE_SIZE as usize + 16..PCP_COMMON_RESPONSE_SIZE as usize + 18]
-				.copy_from_slice(pcp_msg_info.int_port.to_be_bytes().as_ref());
-			response[PCP_COMMON_RESPONSE_SIZE as usize + 18..PCP_COMMON_RESPONSE_SIZE as usize + 20]
-				.copy_from_slice(pcp_msg_info.ext_port.to_be_bytes().as_ref());
-			response[PCP_COMMON_RESPONSE_SIZE as usize + 20..PCP_COMMON_RESPONSE_SIZE as usize + 36]
-				.copy_from_slice(pcp_msg_info.ext_ip.as_octets());
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				16,
+				&pcp_msg_info.int_port.to_be_bytes()
+			);
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				18,
+				&pcp_msg_info.ext_port.to_be_bytes()
+			);
+			copy_to_response!(response, PCP_COMMON_RESPONSE_SIZE, 20, pcp_msg_info.ext_ip.as_octets());
 		}
+	}
+	#[cfg(feature = "pcp_peer")]
+	if response[1] == 0x82 {
+		if response[0] == 1 {
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				4,
+				&pcp_msg_info.int_port.to_be_bytes()
+			);
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				6,
+				&pcp_msg_info.ext_port.to_be_bytes()
+			);
+			copy_to_response!(response, PCP_COMMON_RESPONSE_SIZE, 8, pcp_msg_info.ext_ip.as_octets());
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				24,
+				&pcp_msg_info.peer_port.to_be_bytes()
+			);
+		} else if response[0] == 2 {
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				16,
+				&pcp_msg_info.int_port.to_be_bytes()
+			);
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				18,
+				&pcp_msg_info.ext_port.to_be_bytes()
+			);
+			copy_to_response!(response, PCP_COMMON_RESPONSE_SIZE, 20, pcp_msg_info.ext_ip.as_octets());
+			copy_to_response!(
+				response,
+				PCP_COMMON_RESPONSE_SIZE,
+				36,
+				&pcp_msg_info.peer_port.to_be_bytes()
+			);
+		}
+	}
+	#[cfg(feature = "pcp_sadscp")]
+	if response[1] == 0x83 {
+		response[PCP_COMMON_RESPONSE_SIZE as usize + 12] =
+			((pcp_msg_info.matched_name as u8) << 7) | pcp_msg_info.sadscp_dscp & PCP_SADSCP_MASK;
+		copy_to_response!(response, PCP_COMMON_RESPONSE_SIZE, 13, &[0u8, 3]);
 	}
 }
 #[cfg(feature = "pcp")]

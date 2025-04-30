@@ -24,7 +24,6 @@ pub mod getifstats;
 pub mod minixml;
 pub mod natpmp;
 pub mod options;
-pub mod pcp_msg_struct;
 pub mod pcpserver;
 
 pub mod upnpdescgen;
@@ -45,6 +44,8 @@ pub mod upnpurns;
 pub mod upnputils;
 
 pub mod miniupnpdpath;
+#[cfg(feature = "pcp_sadscp")]
+mod pcplearndscp;
 pub mod uuid;
 pub mod warp;
 

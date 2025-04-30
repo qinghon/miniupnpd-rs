@@ -46,7 +46,7 @@ pub struct upnp_event_notify {
 	pub sent: i32,
 	pub path: Option<Rc<str>>,
 	// pub ipv6: i32,
-	pub addrstr: SocketAddr,
+	pub addr: SocketAddr,
 	// pub portstr: u16,
 }
 
@@ -102,9 +102,8 @@ pub fn upnpevents_addSubscriber<'a>(
 ) -> Option<UUID> {
 	// let mut tmp: *mut subscriber = 0 as *mut subscriber;
 	debug!("addSubscriber({}, {}, {})", eventurl, callback, timeout);
-	let tmp = newSubscriber(eventurl, callback);
-	tmp.as_ref()?;
-	let mut tmp = tmp.unwrap();
+	let mut tmp = newSubscriber(eventurl, callback)?;
+
 	if timeout != 0 {
 		tmp.timeout += Duration::from_secs(timeout as u64);
 	}
@@ -183,7 +182,7 @@ fn upnp_event_create_notify(sub: &mut Rc<RefCell<subscriber>>) {
 		tosend: 0,
 		sent: 0,
 		path: None,
-		addrstr: SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0).into(),
+		addr: SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0).into(),
 	});
 }
 
@@ -225,7 +224,7 @@ fn upnp_event_notify_connect(obj: &mut upnp_event_notify) {
 	}
 	let sock = socket.unwrap();
 
-	obj.addrstr = sock;
+	obj.addr = sock;
 	obj.path = if let Some(p) = path { Some(p.into()) } else { None };
 
 	debug!("upnp_event_notify_connect: '{}' '{}'", sock, path.unwrap_or_default());
@@ -284,7 +283,7 @@ fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
         Cache-Control: no-cache\r\n\
         \r\n\
         {xml}\r\n",
-		obj.addrstr,
+		obj.addr,
 		xml.len() + 2,
 		obj.sub.borrow().uuid,
 		obj.sub.borrow().seq,
@@ -294,7 +293,7 @@ fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
 	obj.state = ESending;
 }
 fn upnp_event_send(obj: &mut upnp_event_notify) {
-	debug!("upnp_event_send: sending event notify message to {}", obj.addrstr);
+	debug!("upnp_event_send: sending event notify message to {}", obj.addr);
 	debug!(
 		"upnp_event_send: msg: {}",
 		str::from_utf8(&obj.buffer[obj.sent as usize..]).unwrap()
@@ -303,7 +302,7 @@ fn upnp_event_send(obj: &mut upnp_event_notify) {
 	match obj.s.send(&obj.buffer[obj.sent as usize..obj.tosend as usize]) {
 		Err(e) => {
 			if e.kind() != io::ErrorKind::WouldBlock && e.kind() != io::ErrorKind::Interrupted {
-				error!("upnp_event_send: send({}): {}", obj.addrstr, e);
+				error!("upnp_event_send: send({}): {}", obj.addr, e);
 				obj.state = EError;
 				return;
 			}
@@ -363,7 +362,7 @@ fn upnp_event_process_notify(rt: &mut RtOptions, index: usize) {
 				}
 				Ok(Some(e)) => {
 					let obj = &mut rt.notify_list[index];
-					error!("upnp_event_process_notify: connect({}): {}", obj.addrstr, e);
+					error!("upnp_event_process_notify: connect({}): {}", obj.addr, e);
 					obj.state = EError;
 					return;
 				}

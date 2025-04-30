@@ -243,7 +243,6 @@ pub fn New_upnphttp<'a>(mut s: Socket, peeraddr: IpAddr) -> upnphttp<'a> {
 	if let Err(e) = s.set_nonblocking(true) {
 		warn!("New_upnphttp::set_non_blocking(): {}", e);
 	}
-	let ss = String::new();
 
 	upnphttp {
 		socket: s,
@@ -274,7 +273,7 @@ pub fn New_upnphttp<'a>(mut s: Socket, peeraddr: IpAddr) -> upnphttp<'a> {
 		res_SID: UUID::default(),
 		respflags: 0,
 		res_buf: Vec::new(),
-		req_buf: ss,
+		req_buf: String::new(),
 		// res_buflen: 0,
 		res_sent: 0,
 		rt_options: None,
@@ -521,7 +520,7 @@ fn ProcessHTTPPOST_upnphttp(h: &mut upnphttp) {
 	};
 }
 fn checkCallbackURL(h: &mut upnphttp) -> bool {
-	let off = h.req_buf.subslice_offset_stable(h.get_req_str_from(h.req_CallbackOff).trim_matches(&['<', '>']));
+	let off = h.req_buf.subslice_offset_stable(h.get_req_str_from(h.req_CallbackOff).trim_matches(['<', '>']));
 	h.req_CallbackOff = off;
 	let u = h.get_req_str_from(h.req_CallbackOff);
 
@@ -572,8 +571,12 @@ fn checkCallbackURL(h: &mut upnphttp) -> bool {
 }
 fn ProcessHTTPSubscribe_upnphttp(h: &mut upnphttp, path_off: OffLen) {
 	debug!("ProcessHTTPSubscribe {}", h.get_req_str_from(path_off));
-	debug!("Callback '{}' Timeout={}", h.req_CallbackOff.0, h.req_Timeout);
-	debug!("SID '{}'", h.req_SIDOff.0);
+	debug!(
+		"Callback '{}' Timeout={}",
+		h.get_req_str_from(h.req_CallbackOff),
+		h.req_Timeout
+	);
+	debug!("SID '{}'", h.get_req_str_from(h.req_SIDOff));
 	if h.req_Timeout < 1800 {
 		/* Second-infinite is forbidden with UDA v1.1 and later :
 		 * (UDA 1.1 : 4.1.1 Subscription)
@@ -815,7 +818,7 @@ pub fn Process_upnphttp(h: &mut upnphttp) {
 					n
 				}
 			};
-			let data = unsafe { mem::transmute::<&[MaybeUninit<u8>], &[u8]>(&buf[..n]) };
+			let data = unsafe { mem::transmute(&buf[..n]) };
 			h.req_buf.push_str(unsafe { str::from_utf8_unchecked(data) });
 			if h.req_buf.len() - h.req_contentoff.len() as usize >= h.req_contentlen as usize {
 				ProcessHTTPPOST_upnphttp(h);
@@ -932,7 +935,7 @@ mod tests {
 			clientaddr,
 		);
 
-		h.req_buf = "<http://192.168.1.2:1820/xxxx>".to_string();
+		h.req_buf = "<http://192.168.1.2:1820/xxxx>".into();
 
 		h.req_CallbackOff = h.req_buf.as_str().subslice_offset_stable(h.req_buf.as_str());
 		assert_ne!(h.req_CallbackOff.0, 0);

@@ -1,4 +1,6 @@
 use crate::getifaddr::{addr_is_reserved, getifaddr};
+#[cfg(feature = "pcp_sadscp")]
+use crate::pcplearndscp::{dscp_value, read_learn_dscp_line};
 use crate::upnpevents::{subscriber, upnp_event_notify};
 use crate::upnpglobalvars::lan_addr_s;
 pub use crate::upnppermissions::{read_permission_line, upnpperm};
@@ -75,6 +77,8 @@ pub struct Options {
 	pub secure_mode: bool,
 	pub quickrules: bool,
 	pub upnpperms: Vec<upnpperm>,
+	#[cfg(feature = "pcp_sadscp")]
+	pub dscp_value: Vec<dscp_value>,
 
 	// re-generation once init flag
 	pub upnp_bootid: u32,
@@ -130,6 +134,8 @@ impl Default for Options {
 			secure_mode: false,
 			quickrules: false,
 			upnpperms: vec![],
+			#[cfg(feature = "pcp_sadscp")]
+			dscp_value: vec![],
 
 			upnp_bootid: 0,
 			runtime_flag: 0,
@@ -186,7 +192,7 @@ pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str) -> i32 {
 	0
 }
 
-fn parse_option_line(op: &mut Options, key: &str, value: &str) -> bool {
+fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bool {
 	if value.is_empty() {
 		return false;
 	};
@@ -320,6 +326,21 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str) -> bool {
 			}
 			Err(_) => return false,
 		},
+		"allow" | "deny" => match read_permission_line(line) {
+			Ok(perm) => {
+				op.upnpperms.push(perm);
+			}
+			Err(_) => return false,
+		},
+		#[cfg(feature = "pcp_sadscp")]
+		"set_learn_dscp" => {
+			let mut dscp_value = Default::default();
+			if read_learn_dscp_line(&mut dscp_value, line) < 0 {
+				op.dscp_value.push(dscp_value);
+			} else {
+				return false;
+			}
+		}
 		#[cfg(fw = "nftables")]
 		"upnp_table_name" => op.upnp_table_name = value.to_string(),
 		#[cfg(fw = "nftables")]
@@ -405,8 +426,8 @@ pub fn readoptionsfile(fname: &Path, _debug_flag: bool) -> Result<Options, io::E
 			perms.push(perm);
 			continue;
 		}
-		if let Some((key, value)) = line_.split_once('=') {
-			if !parse_option_line(&mut option, key, value) {
+		if let Some((key, value)) = line_.split_once(['=', ' ']) {
+			if !parse_option_line(&mut option, key, value, line_) {
 				error!("cannot parse option {}", line_);
 			}
 		}
