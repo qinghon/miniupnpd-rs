@@ -229,7 +229,10 @@ pub fn find_ipv6_addr(ifname: &IfName) -> Option<Ipv6Addr> {
 	}
 	addr
 }
-const reserved: &[ReservedAddr] = &[ReservedAddr { addr: Ipv4Addr::new(0, 0, 0, 0), rmask: 8 }];
+const reserved: &[ReservedAddr] = &[
+	// RFC1122 "This host on this network"
+	ReservedAddr { addr: Ipv4Addr::new(0, 0, 0, 0), rmask: 24 },
+];
 
 pub fn addr_is_reserved(addr: &Ipv4Addr) -> bool {
 	if addr.is_loopback()
@@ -273,5 +276,9 @@ mod tests {
 	#[cfg(feature = "ipv6")]
 	fn test_getifaddr_in6() {
 		assert_eq!(find_ipv6_addr(&IfName::from_str("lo").unwrap()), None);
+	}
+	#[test]
+	fn test_addr_is_reserved() {
+		assert_eq!(Ipv4Addr::LOCALHOST.to_bits() >> 24, 127);
 	}
 }

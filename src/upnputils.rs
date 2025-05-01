@@ -10,10 +10,7 @@ use crate::{TCP, UDP, UDPLITE};
 
 pub fn get_lan_for_peer<'a>(v: &'a Options, peer: &SocketAddr) -> Option<&'a lan_addr_s> {
 	match peer {
-		SocketAddr::V4(v4) => v
-			.listening_ip
-			.iter()
-			.find(|x| (x.mask.to_bits() & v4.ip().to_bits()) == (x.addr.to_bits() & x.mask.to_bits())),
+		SocketAddr::V4(v4) => v.listening_ip.iter().find(|x| (x.mask & v4.ip()) == (x.addr & x.mask)),
 		SocketAddr::V6(v6) => {
 			if let Some(v4) = v6.ip().to_ipv4_mapped() {
 				v.listening_ip.iter().find(|x| (x.mask & v4) == (x.addr & x.mask))
