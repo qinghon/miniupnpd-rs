@@ -19,7 +19,7 @@ use once_cell::sync::OnceCell;
 use socket2::Socket;
 #[cfg(feature = "https")]
 use std::ffi::{CStr, c_int};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::{io, mem};
@@ -554,7 +554,7 @@ fn checkCallbackURL(h: &mut upnphttp) -> bool {
 			if let Ok(addr) = Ipv4Addr::from_str(&u[0..i]) {
 				if h.clientaddr.is_ipv4()
 					&& match h.clientaddr {
-						IpAddr::V4(v4) => v4.to_bits() == addr.to_bits(),
+						IpAddr::V4(v4) => v4 == addr,
 						IpAddr::V6(_) => false,
 					} {
 					true
@@ -837,42 +837,44 @@ pub fn Process_upnphttp(h: &mut upnphttp) {
 }
 
 pub fn BuildHeader_upnphttp(h: &mut upnphttp, respcode: i32, respmsg: &str, bodylen: i32) -> i32 {
-	h.res_buf.reserve(128 + 256 + bodylen as usize);
-	let _ = h.res_buf.extend_from_slice(
-		format!(
-			"{} {} {}\r\nContent-Type: {}\r\nConnection: close\r\nContent-Length: {}\r\nServer: {}\r\nExt:\r\n",
-			h.get_req_str_from(h.HttpVer),
-			respcode,
-			respmsg,
-			if GETFLAG!(h.respflags, FLAG_HTML) {
-				"text/html"
-			} else {
-				"text/xml; charset=\"utf-8\""
-			},
-			bodylen,
-			os_version.get().unwrap_or(&OS_NAME.to_owned())
-		)
-		.as_bytes(),
-	);
+	let mut res_buf = vec![0u8; 128 + 256 + bodylen as usize];
+
+	let http_ver = h.get_req_str_from(h.HttpVer);
+	let _ = res_buf.write_fmt(format_args!(
+		"{http_ver} {respcode} {respmsg}\r\n\
+			Content-Type: {}\r\n\
+			Connection: close\r\n\
+			Content-Length: {bodylen}\r\n\
+			Server: {}\r\n\
+			Ext:\r\n",
+		if GETFLAG!(h.respflags, FLAG_HTML) {
+			"text/html"
+		} else {
+			"text/xml; charset=\"utf-8\""
+		},
+		os_version.get().map(|x| x.as_str()).unwrap_or(OS_NAME)
+	));
 	if GETFLAG!(h.respflags, FLAG_TIMEOUT) {
 		if h.req_Timeout != 0 {
-			h.res_buf.extend_from_slice(format!("{}\r\n", h.req_Timeout).as_bytes());
+			let _ = res_buf.write_fmt(format_args!("{}\r\n", h.req_Timeout));
 		} else {
-			h.res_buf.extend_from_slice(b"infinite\r\n");
+			res_buf.extend_from_slice(b"infinite\r\n");
 		}
 	}
 	if GETFLAG!(h.respflags, FLAG_SID) {
-		h.res_buf.extend_from_slice(format!("SID: {}", h.res_SID).as_bytes());
+		let _ = res_buf.write_fmt(format_args!("SID: {}\r\n", h.res_SID));
 	}
 	if GETFLAG!(h.respflags, FLAG_ALLOW_POST) {
-		h.res_buf.extend_from_slice(b"Allow: SUBSCRIBE, UNSUBSCRIBE\r\n");
+		res_buf.extend_from_slice(b"Allow: SUBSCRIBE, UNSUBSCRIBE\r\n");
 	}
 	if !h.get_req_str_from(h.accept_language).is_empty() {
-		h.res_buf
-			.extend_from_slice(format!("Content-Language: {}\r\n", h.get_req_str_from(h.accept_language)).as_bytes());
+		let _ = res_buf.write_fmt(format_args!(
+			"Content-Language: {}\r\n",
+			h.get_req_str_from(h.accept_language)
+		));
 	}
-	h.res_buf.extend_from_slice(b"\r\n");
-
+	res_buf.extend_from_slice(b"\r\n");
+	h.res_buf = res_buf;
 	0
 }
 

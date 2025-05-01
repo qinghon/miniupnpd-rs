@@ -175,10 +175,8 @@ pub fn getifaddr(ifname: &IfName, addr: &mut Ipv4Addr, mask: Option<&mut Ipv4Add
 			}
 			return 0;
 		}
-		-1
-	} else {
-		-1
 	}
+	-1
 }
 #[cfg(feature = "pcp")]
 pub fn getifaddr_in6(ifname: &IfName, ipv6: bool) -> Option<Ipv6Addr> {

@@ -149,7 +149,7 @@ pub struct pcp_info<'a> {
 	pub pfailure_present: i32,
 	pub sender_ip: Ipv6Addr,
 	pub is_fw: bool,
-	pub desc: Option<String>,
+	pub desc: Option<Rc<str>>,
 	pub rt: Option<&'a mut RtOptions>,
 
 	#[cfg(feature = "pcp_sadscp")]
@@ -537,9 +537,6 @@ fn CheckExternalAddress(pcp_msg_info: &mut pcp_info) -> bool {
 }
 
 fn CreatePCPMap_NAT(pcp_msg_info: &mut pcp_info) -> i32 {
-	let r;
-	// let mut iaddr_old = [0u8; 46];
-	// let mut iport_old = 0u16;
 	let mut eport_first = 0u16;
 	let mut any_eport_allowed = 0;
 	let timestamp = upnp_time().as_secs() as u32 + pcp_msg_info.lifetime;
@@ -569,7 +566,7 @@ fn CreatePCPMap_NAT(pcp_msg_info: &mut pcp_info) -> i32 {
 				pcp_msg_info.ext_port,
 				pcp_msg_info.mapped_ip.to_ipv4().unwrap(),
 				pcp_msg_info.int_port,
-				pcp_msg_info.desc.as_ref().unwrap_or(&"".to_string()).as_str(),
+				pcp_msg_info.desc.as_deref().unwrap_or_default(),
 			) {
 			if pcp_msg_info.pfailure_present != 0 {
 				return PCP_ERR_CANNOT_PROVIDE_EXTERNAL as i32;
@@ -634,12 +631,12 @@ fn CreatePCPMap_NAT(pcp_msg_info: &mut pcp_info) -> i32 {
 			break;
 		}
 	}
-	let st = pcp_msg_info.desc.as_ref();
+	let st = pcp_msg_info.desc.as_deref();
 	let empty = "".to_string();
 	let s = st.unwrap_or(&empty).as_str();
 	let rto = mem::replace(&mut pcp_msg_info.rt, None);
 	let rt = rto.unwrap();
-	r = upnp_redirect_internal(
+	let r = upnp_redirect_internal(
 		rt,
 		None,
 		pcp_msg_info.int_ip.to_ipv4().unwrap(),
@@ -673,7 +670,7 @@ fn CreatePCPMap_FW(pcp_msg_info: &mut pcp_info) -> i32 {
 				error!(
 					"Unauthorized to update pinhole : \"{}\" != \"{}\"",
 					entry.desc.as_ref().map(|x| x.as_str()).unwrap_or_default(),
-					pcp_msg_info.desc.as_ref().unwrap_or(&"".to_string())
+					pcp_msg_info.desc.as_deref().unwrap_or_default()
 				);
 				return PCP_ERR_NOT_AUTHORIZED as i32;
 			}
@@ -730,7 +727,7 @@ fn CreatePCPMap(pcp_msg_info: &mut pcp_info) {
 		pcp_msg_info.ext_port,
 		pcp_msg_info.mapped_ip,
 		pcp_msg_info.int_port,
-		pcp_msg_info.desc.as_ref().unwrap_or(&"".to_string()).as_str()
+		pcp_msg_info.desc.as_deref().unwrap_or_default()
 	);
 }
 
@@ -739,11 +736,6 @@ fn DeletePCPMap(pcp_msg_info: &mut pcp_info) {
 	let proto: u8 = pcp_msg_info.protocol;
 	let mut r: i32 = -1;
 	let eport2: u16 = 0;
-	// let mut iport2: u16 = 0;
-	// let mut iaddr2: [u8; 46] = [0; 46];
-	// let mut proto2: i32 = 0;
-	// let mut desc: [u8; 64] = [0; 64];
-	// let mut timestamp: u32 = 0;
 
 	debug!(
 		"is_fw={} addr={} iport={} proto={}",
@@ -876,7 +868,7 @@ fn ValidatePCPMsg(pcp_msg_info: &mut pcp_info) -> i32 {
 			pcp_msg_info.nonce[1],
 			pcp_msg_info.nonce[2]
 		);
-		pcp_msg_info.desc = Some(desc);
+		pcp_msg_info.desc = Some(desc.as_str().into());
 	}
 
 	1
@@ -1023,7 +1015,7 @@ fn processPCPRequest(req: &[u8], pcp_msg_info: &mut pcp_info) -> i32 {
 				if pcp_msg_info.result_code != 0 {
 					return pcp_msg_info.result_code as i32;
 				}
-				req = &req[PCP_SADSCP_REQ_SIZE as usize + pcp_msg_info.app_name.len()..];
+				// req = &req[PCP_SADSCP_REQ_SIZE as usize + pcp_msg_info.app_name.len()..];
 
 				get_dscp_value(pcp_msg_info);
 			}

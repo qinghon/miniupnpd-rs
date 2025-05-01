@@ -18,18 +18,18 @@ pub(crate) fn read_learn_dscp_line(dscp_values: &mut dscp_value, p: &str) -> i32
 	}
 
 	p = p[15..].trim_start();
-	if p.len() == 0 || !p.starts_with('"') {
+	if p.is_empty() || !p.starts_with('"') {
 		return -1;
 	}
 	p = &p[1..];
 	// app name
 	if let Some(index) = p.find('"') {
 		dscp_values.app_name = (&p[..index]).trim_end().into();
-		p = &p[(index + 1)..].trim_start();
+		p = p[(index + 1)..].trim_start();
 	} else {
 		return -1;
 	}
-	if p.len() == 0 {
+	if p.is_empty() {
 		return -1;
 	}
 	let mut tokens = p.split_ascii_whitespace();
@@ -162,5 +162,6 @@ mod tests {
 
 		assert_eq!(read_learn_dscp_line(&mut d, r#"set_learn_dscp "Webex" 1 1 1 KFC"#), -1);
 		assert_eq!(read_learn_dscp_line(&mut d, r#"set_learn_dscp "Webex" 1 1 1 78"#), -1);
+		assert_eq!(read_learn_dscp_line(&mut d, "set_learn_dscp \"\""), -1);
 	}
 }

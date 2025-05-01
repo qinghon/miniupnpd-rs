@@ -160,7 +160,7 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::File::open(lease_file) {
+	let mut fd = match fs::File::open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
@@ -243,7 +243,7 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 		}
 	}
 
-	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
+	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
 		error!("could not rename temporary lease file to {}", lease_file);
 		let _ = fs::remove_file(tmpfilename.as_str());
 	}
@@ -254,7 +254,7 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::File::open(lease_file) {
+	let mut fd = match fs::File::open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
@@ -330,7 +330,7 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 		}
 	}
 
-	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
+	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
 		error!("could not rename temporary lease file to {}", lease_file);
 		let _ = fs::remove_file(tmpfilename.as_str());
 	}
@@ -342,7 +342,7 @@ pub fn lease_file6_expire() -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::File::open(lease_file) {
+	let mut fd = match fs::File::open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
@@ -420,7 +420,7 @@ pub fn lease_file6_expire() -> i32 {
 		}
 	}
 
-	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
+	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
 		error!("could not rename temporary lease file to {}", lease_file);
 		let _ = fs::remove_file(tmpfilename.as_str());
 	}

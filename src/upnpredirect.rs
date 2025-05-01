@@ -31,7 +31,7 @@ fn lease_file_add(iaddr: Ipv4Addr, eport: u16, iport: u16, proto: u8, desc: Opti
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::OpenOptions::new().read(true).write(true).append(true).open(lease_file) {
+	let mut fd = match fs::OpenOptions::new().read(true).write(true).append(true).open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => {
 			error!("could to open lease file {}", lease_file);
@@ -57,7 +57,7 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::File::open(lease_file) {
+	let mut fd = match fs::File::open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
@@ -83,7 +83,7 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 		}
 	}
 
-	if let Err(_) = fs::rename(&tmpfilename, lease_file) {
+	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
 		error!("could not rename temporary lease file to {}", lease_file);
 		let _ = fs::remove_file(tmpfilename.as_str());
 	}

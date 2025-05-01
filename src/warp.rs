@@ -152,7 +152,7 @@ pub struct IfName([u8; libc::IF_NAMESIZE]);
 impl FromStr for IfName {
 	type Err = io::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if s.len() >= (libc::IF_NAMESIZE - 1) {
+		if s.len() >= (libc::IF_NAMESIZE) {
 			return Err(io::ErrorKind::ArgumentListTooLong.into());
 		}
 		if !s.is_ascii() || s.is_empty() {
@@ -556,6 +556,8 @@ mod tests {
 		assert_eq!(ifname.as_str(), "eth0");
 		assert_eq!(ifname.as_str().len(), ifname.len());
 		assert!(IfName::from_str("ifname").is_ok());
+		assert!(IfName::from_str("br1234567890abc").is_ok());
+		assert!(IfName::from_str("br1234567890abcd").is_err());
 	}
 	#[test]
 	fn test_read_line() {

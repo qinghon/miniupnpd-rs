@@ -14,14 +14,13 @@ pub fn checkforrunning(fname: &str) -> i32 {
 	};
 
 	match file.read(&mut buffer) {
-		Ok(_l) => {
-			if let Ok(pid) = String::from_utf8(buffer.to_vec()) {
-				if let Ok(pid) = pid.trim().parse::<i32>() {
-					unsafe {
-						// let cname = CString::new("").unwrap();
-						if kill(pid, 0) == 0 {
-							return -2;
-						}
+		Ok(l) => {
+			let pid = String::from_utf8_lossy(&buffer[0..l]);
+			if let Ok(pid) = pid.trim().parse::<i32>() {
+				unsafe {
+					// let cname = CString::new("").unwrap();
+					if kill(pid, 0) == 0 {
+						return -2;
 					}
 				}
 			}

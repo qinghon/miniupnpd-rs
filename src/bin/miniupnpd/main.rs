@@ -1,6 +1,7 @@
 #![feature(random)]
 #![feature(ip)]
 #![feature(const_format_args)]
+#![feature(str_as_str)]
 #![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use daemonize::checkforrunning;
@@ -36,7 +37,6 @@ use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::ops::{Add, Sub};
 use std::os::fd::{AsRawFd, RawFd};
-use std::path::PathBuf;
 use std::random::random;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -346,7 +346,7 @@ pub fn update_ext_ip_addr_from_stun(
 	}
 	info!(
 		"STUN: Performing with host={} and port={} ...",
-		v.ext_stun_host.as_ref().unwrap().as_str(),
+		v.ext_stun_host.as_deref().unwrap(),
 		v.ext_stun_port
 	);
 	let mut ip = Ipv4Addr::UNSPECIFIED;
@@ -360,7 +360,7 @@ pub fn update_ext_ip_addr_from_stun(
 		&mut rt.nat_impl,
 		ext_if_name,
 		ip,
-		v.ext_stun_host.as_ref().unwrap().as_str(),
+		v.ext_stun_host.as_ref().unwrap(),
 		v.ext_stun_port,
 		&mut restrictive_nat,
 	) {
@@ -523,7 +523,7 @@ fn init(
 
 	*runtime_flags |= ENABLEUPNPMASK | SECUREMODEMASK;
 
-	let ret = options::readoptionsfile(&PathBuf::from(optionsfile), debug_flag);
+	let ret = options::readoptionsfile(optionsfile, debug_flag);
 	let mut option = match ret {
 		Ok(o) => o,
 		Err(_) => {
@@ -558,8 +558,9 @@ fn init(
 			idx += 1;
 			continue;
 		}
-		match args[idx].as_bytes()[1] {
-			b'v' => verbosity_level = args[idx][1..].len() as i32,
+		let start = &args[idx];
+		match start.as_bytes()[1] {
+			b'v' => verbosity_level = start[1..].len() as i32,
 			b'4' => option.ipv6_disable = true,
 			b'1' => option.force_igd_desc_v1 = true,
 			b'b' => {
@@ -578,22 +579,19 @@ fn init(
 			}
 			b'o' => {
 				let s = args[idx + 1].as_str();
-				if s.starts_with("STUN:") {
-					match s.splitn(2, ':').collect::<Vec<&str>>().as_slice() {
-						[_, host, port] => {
-							option.ext_stun_host = Some(host.to_string());
-							option.ext_stun_port = match u16::from_str(&port) {
-								Ok(v) => v,
-								Err(_) => {
-									print_usage(pidfilename.as_str(), optionsfile);
-									return -1;
-								}
+				if let Some(addr) = s.strip_prefix("STUN:") {
+					let mut tokens = addr.split(':');
+					if let Some(host) = tokens.next() {
+						option.ext_stun_host = Some(host.into());
+					}
+					if let Some(port) = tokens.next() {
+						option.ext_stun_port = match u16::from_str(&port) {
+							Ok(v) => v,
+							Err(_) => {
+								print_usage(pidfilename.as_str(), optionsfile);
+								return -1;
 							}
 						}
-						[_, host] => {
-							option.ext_stun_host = Some(host.to_string());
-						}
-						_ => {}
 					}
 				} else {
 					let ip = Ipv4Addr::from_str(&args[idx + 1]).unwrap();
@@ -639,11 +637,11 @@ fn init(
 				idx += 1;
 			}
 			b's' => {
-				option.serial = args[idx + 1].to_string();
+				option.serial = args[idx + 1].as_str().into();
 				idx += 1;
 			}
 			b'm' => {
-				option.model_number = args[idx + 1].to_string();
+				option.model_number = args[idx + 1].as_str().into();
 				idx += 1;
 			}
 			b'N' => {
@@ -653,11 +651,13 @@ fn init(
 				option.system_uptime = true;
 			}
 			b'S' => {
-				if args[idx].len() > 2 {
+				if start.len() >= 2 && start.as_bytes()[2] == b'0' {
+					option.secure_mode = false;
+				} else if start.len() > 3 {
+					eprintln!("Uses -S0 to disable secure mode.");
 					print_usage(pidfilename.as_str(), optionsfile);
 					return -1;
 				}
-				option.secure_mode = false;
 			}
 			b'i' => {
 				let ifname = match IfName::from_str(args[idx + 1].as_str()) {
@@ -702,7 +702,7 @@ fn init(
 			}
 			b'd' => {}
 			b'w' => {
-				option.presentation_url = Some(args[idx + 1].to_string());
+				option.presentation_url = Some((args[idx + 1].as_str()).into());
 				idx += 1;
 			}
 			b'B' => {
@@ -772,8 +772,8 @@ fn init(
 	if option.ext_ip.is_some() && rt.use_ext_ip_addr.is_none() {
 		rt.use_ext_ip_addr = option.ext_ip.map(|x| x.into());
 	}
-	let _ = serialnumber.set(option.serial.clone());
-	let _ = modelnumber.set(option.model_number.clone());
+	let _ = serialnumber.set(option.serial.as_str().into());
+	let _ = modelnumber.set(option.model_number.as_str().into());
 	let _ = if let Some(persurl) = &option.presentation_url {
 		presentationurl.set(persurl.to_string())
 	} else {

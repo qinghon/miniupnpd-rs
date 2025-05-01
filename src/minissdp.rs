@@ -890,7 +890,7 @@ pub fn SubmitServicesToMiniSSDPD(v: &Options, host: Ipv4Addr, port: u16) -> io::
 	let mut s = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
 
 	s.connect(&socket2::SockAddr::unix(
-		v.minissdpdsocket.as_ref().unwrap_or(&DEFAULT_MINISSDP_DSOCKET_PATH.into()),
+		v.minissdpdsocket.as_deref().unwrap_or(DEFAULT_MINISSDP_DSOCKET_PATH),
 	)?)?;
 
 	let mut buf: Vec<u8> = Vec::with_capacity(2048);

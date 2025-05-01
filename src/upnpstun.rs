@@ -9,24 +9,35 @@ use std::random::random;
 use std::time::Duration;
 use std::{io, mem};
 
-fn generate_transaction_id(transaction_id: &mut u8) {
-	let id: u8 = random();
-	*transaction_id = id;
+fn generate_transaction_id(transaction_id: &mut [u8]) {
+	let id1: u32 = random();
+	let id2: u32 = random();
+	let id3: u32 = random();
+	transaction_id[0..4].copy_from_slice(&id1.to_ne_bytes());
+	transaction_id[4..8].copy_from_slice(&id2.to_ne_bytes());
+	transaction_id[8..12].copy_from_slice(&id3.to_ne_bytes());
 }
 fn fill_request(buffer: &mut [u8; 28], change_ip: bool, change_port: bool) {
+	// Type: Binding Request
 	buffer[0] = 0;
 	buffer[1] = 0x1;
+	// Length: One 8-byte attribute
 	buffer[2] = 0;
 	buffer[3] = 0x8;
+	// RFC5389 Magic Cookie: 0x2120A442
 	buffer[4] = 0x21;
 	buffer[5] = 0x12;
 	buffer[6] = 0xa4;
 	buffer[7] = 0x42;
-	generate_transaction_id(&mut buffer[8]);
+	// Transaction Id
+	generate_transaction_id(&mut buffer[8..20]);
+	// Attribute Type: Change Request
 	buffer[20] = 0;
 	buffer[21] = 0x3;
+	// Attribute Length: 4 bytes
 	buffer[22] = 0;
 	buffer[23] = 0x4;
+
 	buffer[24] = 0;
 	buffer[25] = 0;
 	buffer[26] = 0;
@@ -46,7 +57,7 @@ pub fn resolve_stun_host(stun_host: &str, stun_port: u16) -> io::Result<SocketAd
 		Err(io::ErrorKind::AddrNotAvailable.into())
 	}
 }
-
+/// Create a new UDP socket for STUN connection and return file descriptor and local UDP port
 pub fn stun_socket() -> io::Result<(UdpSocket, u16)> {
 	let socket = Socket::new(
 		socket2::Domain::IPV4,
@@ -79,7 +90,7 @@ fn receive_stun_response(
 				error!("receive_stun_response: recvfrom(): peer_addr_len mismatch");
 				return 0;
 			}
-			if buffer[0] != 1 || buffer[1] != 1 {
+			if buffer[0] != 1 || buffer[1] & 0xEF != 1 {
 				warn!(
 					"receive_stun_response: STUN message type is 0x{:02x}{:02x}",
 					buffer[0], buffer[1]
@@ -152,7 +163,7 @@ fn wait_for_stun_responses(
 				}
 				debug!(
 					"wait_for_stun_responses: received response: {}",
-					lens.iter().map(|x| if *x != 0 { 1 } else { 0 }).sum::<usize>()
+					lens.iter().map(|x| (*x != 0) as u8).sum::<u8>()
 				);
 				if lens.iter().all(|x| *x != 0) {
 					return 0;
@@ -232,9 +243,8 @@ pub fn parse_stun_response(buffer: &[u8]) -> Option<SocketAddrV4> {
 			0x0009 => {
 				if attr_len >= 4 {
 					warn!(
-						"parse_stun_response: ERROR-CODE {} {}",
-						ptr[2] as u32 * 100 + ptr[3] as u32,
-						String::from_utf8_lossy(&ptr[4..(attr_len as usize)])
+						"parse_stun_response: ERROR-CODE {}",
+						ptr[2] as u32 * 100 + ptr[3] as u32
 					);
 				}
 			}
@@ -269,7 +279,12 @@ pub fn parse_stun_response(buffer: &[u8]) -> Option<SocketAddrV4> {
 
 	mapped_addr
 }
-
+/// Perform main STUN operation, return external IP address and check
+/// if host is behind restrictive, symmetric NAT or behind firewall.
+///
+/// Restrictive NAT means any NAT which do some filtering and
+/// which is not static full-cone NAT 1:1, basically NAT which is not usable
+/// for port forwarding
 pub fn perform_stun(
 	nat_backend: &mut nat_impl,
 	if_name: &IfName,
@@ -335,8 +350,8 @@ pub fn perform_stun(
 			if responses_lens[i] != 0 {
 				continue;
 			}
-			if fds[i].send_to(&requests[i], remote_addr)? != 28 {
-				error!("perform_stun: send_to() failed");
+			if fds[i].send_to(&requests[i], remote_addr).unwrap_or_default() != 28 {
+				error!("perform_stun: send_to(): %m");
 				break;
 			}
 		}

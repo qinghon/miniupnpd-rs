@@ -1,5 +1,4 @@
 use crate::asyncsendto::{scheduled_send, sendto_or_schedule};
-use crate::getifaddr::{addr_is_reserved, getifaddr};
 use crate::options::{Options, RtOptions};
 use crate::upnpglobalvars::*;
 use crate::upnppermissions::check_upnp_rule_against_permissions;
@@ -33,11 +32,9 @@ pub fn OpenAndConfNATPMPSockets(v: &Options) -> io::Result<Vec<Socket>> {
 	}
 	Ok(socks)
 }
-fn FillPublicAddressResponse(
-	// v: &Options,
-	resp: &mut [u8],
-	_senderaddr: Option<Ipv4Addr>,
-) {
+#[cfg(not(feature = "multiple_ext_ip"))]
+fn FillPublicAddressResponse(resp: &mut [u8], _senderaddr: Ipv4Addr) {
+	use crate::getifaddr::{addr_is_reserved, getifaddr};
 	let v = global_option.get().unwrap();
 	if let Some(use_ext_ip) = v.ext_ip.as_ref() {
 		resp[8..12].copy_from_slice(use_ext_ip.as_octets())
@@ -55,6 +52,19 @@ fn FillPublicAddressResponse(
 		} else {
 			error!("Failed to get IP for interface {}", v.ext_ifname);
 			resp[3] = 3;
+		}
+	}
+}
+#[cfg(feature = "multiple_ext_ip")]
+fn FillPublicAddressResponse(resp: &mut [u8], senderaddr: Ipv4Addr) {
+	let op = global_option.get().unwrap();
+	if senderaddr.is_unspecified() {
+		return;
+	}
+	for lan in &op.listening_ip {
+		if senderaddr & lan.mask == lan.addr & lan.mask {
+			resp[8..12].copy_from_slice(lan.ext_ip_addr.as_octets());
+			return;
 		}
 	}
 }
@@ -106,163 +116,166 @@ pub fn ProcessIncomingNATPMPPacket(
 	}
 	_resp_len = 8;
 	resp[1] = 128 + req[1];
+	if rt.epoch_origin.is_zero() {
+		rt.epoch_origin = *startup_time.get().unwrap();
+	}
+	resp[4..8].copy_from_slice(&((upnp_time() - rt.epoch_origin).as_secs() as u32).to_be_bytes());
 
-	if req[0] > 0 {
-		warn!("unsupported NAT-PMP version : {}", req[0]);
-		resp[3] = 1;
-	} else {
-		match req[1] {
-			// Public address request
-			0 => {
-				info!("NAT-PMP public address request");
-				FillPublicAddressResponse(&mut resp, Some(*senderaddr.ip()));
-				_resp_len = 12;
-			}
-			// udp and tcp
-			1 | 2 => {
-				let iport = u16::from_be_bytes([req[4], req[5]]);
-				let eport = u16::from_be_bytes([req[6], req[7]]);
-				let lifetime = u32::from_be_bytes([req[8], req[9], req[10], req[11]]);
-				let proto = if req[1] == 1 { UDP } else { TCP };
-				let proto_str = proto_itoa(proto);
-				info!(
-					"NAT-PMP port mapping request : {}=>{}:{} {} lifetime={}",
-					eport,
-					senderaddr.ip(),
-					iport,
-					proto_str,
-					lifetime
-				);
-				if lifetime == 0 {
-					while let Some(entry) = rt.nat_impl.get_redirect_rule(|x| {
-						x.daddr.as_octets() == senderaddr.ip().as_octets()
-							&& x.desc.as_ref().map(|x| x.as_str()).unwrap_or_default().starts_with("NAT-PMP")
-					}) {
-						if entry.dport == 0 || ((iport == entry.dport) && (proto == entry.proto)) {
-							let r = _upnp_delete_redir(rt, eport, proto);
-							if r < 0 {
-								error!("Failed to remove NAT-PMP mapping eport {}, protocol {}", eport, proto);
-								//  Not Authorized/Refused
-								resp[3] = 2;
-							} else {
-								info!("NAT-PMP {} port {} mapping removed", proto_str, eport);
-							}
-						}
-					}
-				} else if iport == 0 {
-					resp[3] = 2; /* Not Authorized/Refused */
-				} else {
-					let mut eport = iport;
-					let mut eport_first = 0;
-					let mut any_eport_allowed = false;
-					#[cfg(feature = "portinuse")]
-					let op = global_option.get().unwrap();
-					while resp[3] == 0 {
-						if eport_first == 0 {
-							// first time in loop
-							eport_first = eport;
-						} else if eport == eport_first {
-							//  no eport available
-							if !any_eport_allowed {
-								error!(
-									"No allowed eport for NAT-PMP {} {}->{}:{}",
-									eport,
-									proto_str,
-									senderaddr.ip(),
-									iport
-								);
-								resp[3] = 2; /* Not Authorized/Refused */
-							} else {
-								error!(
-									"Failed to find available eport for NAT-PMP {} {}->{}:{}",
-									eport,
-									proto_str,
-									senderaddr.ip(),
-									iport
-								);
-								resp[3] = 4; /* Out of resources */
-							}
-							break;
-						}
-						if !check_upnp_rule_against_permissions(&v.upnpperms, eport, *senderaddr.ip(), iport, "NAT-PMP")
-						{
-							eport += 1;
-							if eport == 0 {
-								/* skip port zero */
-								eport += 1
-							}
-							continue;
-						}
-						any_eport_allowed = true;
-						#[cfg(feature = "portinuse")]
-						{
-							if rt.os.port_in_use(&rt.nat_impl, &op.ext_ifname, eport, proto, senderaddr.ip(), iport) > 0
-							{
-								info!("port {} protocol {} already in use", eport, proto_itoa(proto));
-								eport += 1;
-								if eport == 0 {
-									eport += 1
-								}
-								continue;
-							}
-						}
+	'send: {
+		if req[0] > 0 {
+			warn!("unsupported NAT-PMP version : {}", req[0]);
+			resp[3] = 1;
+			break 'send;
+		}
+		if !matches!(req[1], 0..=2) {
+			// Unsupported OPCODE
+			resp[3] = 5;
+			break 'send;
+		}
+		// Public address request
+		if req[1] == 0 {
+			info!("NAT-PMP public address request");
+			FillPublicAddressResponse(&mut resp, *senderaddr.ip());
+			_resp_len = 12;
+			break 'send;
+		}
 
-						if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.sport == eport && x.proto == proto) {
-							if entry.daddr.octets() == senderaddr.ip().octets() && iport == entry.dport {
-								info!(
-									"port {} {} already redirected to {}:{}, replacing",
-									eport, proto_str, entry.daddr, entry.dport
-								);
-								if _upnp_delete_redir(rt, eport, proto) < 0 {
-									error!("failed to remove port mapping");
-									break;
-								}
-							} else {
-								eport += 1;
-								if eport == 0 {
-									eport += 1
-								}
-								continue;
-							}
-						}
-
-						// do the redirection
-						let timestamp = upnp_time().as_secs() + lifetime as u64;
-						let desc = format!("NAT-PMP {} {}", eport, proto_str);
-						if upnp_redirect(
-							rt,
-							None,
-							*senderaddr.ip(),
-							eport,
-							iport,
-							proto,
-							Some(desc.as_str()),
-							timestamp as _,
-						) < 0
-						{
-							error!(
-								"Failed to add NAT-PMP {} {}->{}:{} '{}'",
-								eport,
-								proto_str,
-								senderaddr.ip(),
-								iport,
-								desc
-							);
-							resp[3] = 3;
-						}
-						break;
+		// udp and tcp
+		let iport = u16::from_be_bytes([req[4], req[5]]);
+		let eport = u16::from_be_bytes([req[6], req[7]]);
+		let lifetime = u32::from_be_bytes([req[8], req[9], req[10], req[11]]);
+		let proto = if req[1] == 1 { UDP } else { TCP };
+		let proto_str = proto_itoa(proto);
+		info!(
+			"NAT-PMP port mapping request : {}=>{}:{} {} lifetime={}",
+			eport,
+			senderaddr.ip(),
+			iport,
+			proto_str,
+			lifetime
+		);
+		if lifetime == 0 {
+			while let Some(entry) = rt.nat_impl.get_redirect_rule(|x| {
+				x.daddr.as_octets() == senderaddr.ip().as_octets()
+					&& x.desc.as_ref().map(|x| x.as_str()).unwrap_or_default().starts_with("NAT-PMP")
+			}) {
+				if entry.dport == 0 || ((iport == entry.dport) && (proto == entry.proto)) {
+					let r = _upnp_delete_redir(rt, eport, proto);
+					if r < 0 {
+						error!("Failed to remove NAT-PMP mapping eport {}, protocol {}", eport, proto);
+						//  Not Authorized/Refused
+						resp[3] = 2;
+					} else {
+						info!("NAT-PMP {} port {} mapping removed", proto_str, eport);
 					}
 				}
-				resp[8..10].copy_from_slice(iport.to_be_bytes().as_ref());
-				resp[10..12].copy_from_slice(eport.to_be_bytes().as_ref());
-				resp[12..16].copy_from_slice(lifetime.to_be_bytes().as_ref());
-				_resp_len = 16;
 			}
-			_ => {
-				// Unsupported OPCODE
-				resp[3] = 5;
+		} else if iport == 0 {
+			resp[3] = 2; /* Not Authorized/Refused */
+		} else {
+			let mut eport = iport;
+			let mut eport_first = 0;
+			let mut any_eport_allowed = false;
+			#[cfg(feature = "portinuse")]
+			let op = global_option.get().unwrap();
+			while resp[3] == 0 {
+				if eport_first == 0 {
+					// first time in loop
+					eport_first = eport;
+				} else if eport == eport_first {
+					//  no eport available
+					if !any_eport_allowed {
+						error!(
+							"No allowed eport for NAT-PMP {} {}->{}:{}",
+							eport,
+							proto_str,
+							senderaddr.ip(),
+							iport
+						);
+						resp[3] = 2; /* Not Authorized/Refused */
+					} else {
+						error!(
+							"Failed to find available eport for NAT-PMP {} {}->{}:{}",
+							eport,
+							proto_str,
+							senderaddr.ip(),
+							iport
+						);
+						resp[3] = 4; /* Out of resources */
+					}
+					break;
+				}
+				if !check_upnp_rule_against_permissions(&v.upnpperms, eport, *senderaddr.ip(), iport, "NAT-PMP") {
+					eport += 1;
+					if eport == 0 {
+						/* skip port zero */
+						eport += 1
+					}
+					continue;
+				}
+				any_eport_allowed = true;
+				#[cfg(feature = "portinuse")]
+				{
+					if rt.os.port_in_use(&rt.nat_impl, &op.ext_ifname, eport, proto, senderaddr.ip(), iport) > 0 {
+						info!("port {} protocol {} already in use", eport, proto_itoa(proto));
+						eport += 1;
+						if eport == 0 {
+							eport += 1
+						}
+						continue;
+					}
+				}
+
+				if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.sport == eport && x.proto == proto) {
+					if entry.daddr.octets() == senderaddr.ip().octets() && iport == entry.dport {
+						info!(
+							"port {} {} already redirected to {}:{}, replacing",
+							eport, proto_str, entry.daddr, entry.dport
+						);
+						if _upnp_delete_redir(rt, eport, proto) < 0 {
+							error!("failed to remove port mapping");
+							break;
+						}
+					} else {
+						eport += 1;
+						if eport == 0 {
+							eport += 1
+						}
+						continue;
+					}
+				}
+
+				// do the redirection
+				let timestamp = upnp_time().as_secs() + lifetime as u64;
+				let desc = format!("NAT-PMP {} {}", eport, proto_str);
+				if upnp_redirect(
+					rt,
+					None,
+					*senderaddr.ip(),
+					eport,
+					iport,
+					proto,
+					Some(desc.as_str()),
+					timestamp as _,
+				) < 0
+				{
+					error!(
+						"Failed to add NAT-PMP {} {}->{}:{} '{}'",
+						eport,
+						proto_str,
+						senderaddr.ip(),
+						iport,
+						desc
+					);
+					resp[3] = 3;
+				}
+				break;
 			}
 		}
+		resp[8..10].copy_from_slice(iport.to_be_bytes().as_ref());
+		resp[10..12].copy_from_slice(eport.to_be_bytes().as_ref());
+		resp[12..16].copy_from_slice(lifetime.to_be_bytes().as_ref());
+		_resp_len = 16;
 	}
 	match sendto_or_schedule(send_list, s, &resp, 0, senderaddr.into()) {
 		Ok(n) => {
@@ -285,11 +298,11 @@ pub fn SendNATPMPPublicAddressChangeNotification(
 
 	notif[1] = 128; // op code
 	if rt.epoch_origin == Default::default() {
-		rt.epoch_origin = startup_time.get().unwrap().clone();
+		rt.epoch_origin = *startup_time.get().unwrap();
 	}
 	notif[4..8].copy_from_slice(((upnp_time() - rt.epoch_origin).as_secs() as u32).to_be_bytes().as_ref());
-	FillPublicAddressResponse(&mut notif, None);
-	if notif[3 as i32 as usize] != 0 {
+	FillPublicAddressResponse(&mut notif, Ipv4Addr::UNSPECIFIED);
+	if notif[3] != 0 {
 		warn!("SendNATPMPPublicAddressChangeNotification: cannot get public IP address, stopping");
 		return;
 	}

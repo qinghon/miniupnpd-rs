@@ -87,7 +87,8 @@ fn NameValueParserGetData(d: &mut NameValueParserData, datas: &str) {
 		// d.portListing = None;
 		// d.portListing = Some(String::from(datas));
 	} else {
-		d.cdata = String::from(datas);
+		d.cdata.clear();
+		d.cdata.push_str(datas);
 	}
 }
 

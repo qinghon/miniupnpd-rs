@@ -16,9 +16,7 @@ pub fn get_lan_for_peer<'a>(v: &'a Options, peer: &SocketAddr) -> Option<&'a lan
 			.find(|x| (x.mask.to_bits() & v4.ip().to_bits()) == (x.addr.to_bits() & x.mask.to_bits())),
 		SocketAddr::V6(v6) => {
 			if let Some(v4) = v6.ip().to_ipv4_mapped() {
-				v.listening_ip
-					.iter()
-					.find(|x| (x.mask.to_bits() & v4.to_bits()) == (x.addr.to_bits() & x.mask.to_bits()))
+				v.listening_ip.iter().find(|x| (x.mask & v4) == (x.addr & x.mask))
 			} else {
 				let index = if v6.scope_id() > 0 {
 					v6.scope_id()

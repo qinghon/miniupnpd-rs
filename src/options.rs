@@ -16,7 +16,6 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
@@ -33,7 +32,7 @@ pub struct Options {
 	pub ext_ifname6: IfName,
 	pub ext_ip: Option<Ipv4Addr>,
 	pub ext_perform_stun: bool,
-	pub ext_stun_host: Option<String>,
+	pub ext_stun_host: Option<Rc<str>>,
 	pub ext_stun_port: u16,
 	pub listening_ip: Vec<lan_addr_s>,
 	pub ipv6_listening_ip: Option<Ipv6Addr>,
@@ -49,41 +48,47 @@ pub struct Options {
 
 	pub bitrate_up: Option<usize>,
 	pub bitrate_down: Option<usize>,
-	pub presentation_url: Option<String>,
+	pub presentation_url: Option<Rc<str>>,
 	pub notify_interval: u32,
 	pub system_uptime: bool,
 	pub packet_log: bool,
 	pub uuid: UUID,
-	pub serial: String,
-	pub model_number: String,
+	pub serial: Rc<str>,
+	pub model_number: Rc<str>,
 	pub clean_ruleset_threshold: u32,
 	pub clean_ruleset_interval: u32,
-	pub upnp_table_name: String,
-	pub upnp_nat_table_name: String,
-	pub upnp_forward_chain: String,
-	pub upnp_nat_chain: String,
-	pub upnp_nat_postrouting_chain: String,
+	pub upnp_table_name: Rc<str>,
+	pub upnp_nat_table_name: Rc<str>,
+	pub upnp_forward_chain: Rc<str>,
+	pub upnp_nat_chain: Rc<str>,
+	pub upnp_nat_postrouting_chain: Rc<str>,
 	pub upnp_nftables_family_split: bool,
 	pub enable_natpmp: bool,
 	pub enable_pcp_pmp: bool,
 	pub min_lifetime: usize,
 	pub max_lifetime: usize,
-	pub pcp_allow_thirdparty: String,
+	pub pcp_allow_thirdparty: Rc<str>,
 	pub enable_upnp: bool,
-	pub lease_file: String,
-	pub lease_file6: String,
+	pub lease_file: Rc<str>,
+	pub lease_file6: Rc<str>,
 	pub force_igd_desc_v1: bool,
-	pub minissdpdsocket: Option<PathBuf>,
+	pub minissdpdsocket: Option<Rc<str>>,
 	pub secure_mode: bool,
 	pub quickrules: bool,
 	pub upnpperms: Vec<upnpperm>,
 	#[cfg(feature = "pcp_sadscp")]
-	pub dscp_value: Vec<dscp_value>,
+	pub(crate) dscp_value: Vec<dscp_value>,
 
 	// re-generation once init flag
 	pub upnp_bootid: u32,
 	pub runtime_flag: u32,
 }
+
+// Usually, manually implementing send/sync is not multi-threaded safe,
+// but we only have one thread, so everything will be ok
+unsafe impl Sync for Options {}
+unsafe impl Send for Options {}
+
 impl Default for Options {
 	fn default() -> Self {
 		Self {
@@ -115,20 +120,20 @@ impl Default for Options {
 			model_number: Default::default(),
 			clean_ruleset_threshold: 0,
 			clean_ruleset_interval: 0,
-			upnp_table_name: "".to_string(),
-			upnp_nat_table_name: "".to_string(),
-			upnp_forward_chain: "".to_string(),
-			upnp_nat_chain: "".to_string(),
-			upnp_nat_postrouting_chain: "".to_string(),
+			upnp_table_name: Default::default(),
+			upnp_nat_table_name: Default::default(),
+			upnp_forward_chain: Default::default(),
+			upnp_nat_chain: Default::default(),
+			upnp_nat_postrouting_chain: Default::default(),
 			upnp_nftables_family_split: false,
 			enable_natpmp: false,
 			enable_pcp_pmp: false,
 			min_lifetime: 0,
 			max_lifetime: 0,
-			pcp_allow_thirdparty: "".to_string(),
+			pcp_allow_thirdparty: Default::default(),
 			enable_upnp: false,
-			lease_file: "".to_string(),
-			lease_file6: "".to_string(),
+			lease_file: Default::default(),
+			lease_file6: Default::default(),
 			force_igd_desc_v1: false,
 			minissdpdsocket: None,
 			secure_mode: false,
@@ -224,7 +229,7 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 			None => return false,
 		},
 		"ext_stun_host" => {
-			op.ext_stun_host = Some(value.to_string());
+			op.ext_stun_host = Some(value.into());
 		}
 		"ext_stun_port" => {
 			op.ext_stun_port = u16::from_str(&value).unwrap_or(0);
@@ -288,7 +293,7 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 			Err(_) => return false,
 		},
 		"presentation_url" => {
-			op.presentation_url = Some(value.to_string());
+			op.presentation_url = Some(value.into());
 		}
 		"notify_interval" => match u32::from_str(value) {
 			Ok(v) => {
@@ -312,8 +317,8 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 				eprintln!("parse uuid \"{}\" {}", value, e);
 			}
 		},
-		"serial" => op.serial = value.to_string(),
-		"model_number" => op.model_number = value.to_string(),
+		"serial" => op.serial = value.into(),
+		"model_number" => op.model_number = value.into(),
 		"clean_ruleset_threshold" => match u32::from_str(value) {
 			Ok(v) => {
 				op.clean_ruleset_interval = v;
@@ -342,15 +347,15 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 			}
 		}
 		#[cfg(fw = "nftables")]
-		"upnp_table_name" => op.upnp_table_name = value.to_string(),
+		"upnp_table_name" => op.upnp_table_name = value.into(),
 		#[cfg(fw = "nftables")]
-		"upnp_nat_table_name" => op.upnp_nat_table_name = value.to_string(),
+		"upnp_nat_table_name" => op.upnp_nat_table_name = value.into(),
 		#[cfg(fw = "nftables")]
-		"upnp_forward_chain" => op.upnp_forward_chain = value.to_string(),
+		"upnp_forward_chain" => op.upnp_forward_chain = value.into(),
 		#[cfg(fw = "nftables")]
-		"upnp_nat_chain" => op.upnp_nat_chain = value.to_string(),
+		"upnp_nat_chain" => op.upnp_nat_chain = value.into(),
 		#[cfg(fw = "nftables")]
-		"upnp_nat_postrouting_chain" => op.upnp_nat_postrouting_chain = value.to_string(),
+		"upnp_nat_postrouting_chain" => op.upnp_nat_postrouting_chain = value.into(),
 		#[cfg(fw = "nftables")]
 		"upnp_nftables_family_split" => match parse_bool(value) {
 			Some(v) => op.upnp_nftables_family_split = v,
@@ -375,19 +380,19 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 			Ok(v) => op.max_lifetime = v,
 			Err(_) => return false,
 		},
-		"pcp_allow_thirdparty" => op.pcp_allow_thirdparty = value.to_string(),
+		"pcp_allow_thirdparty" => op.pcp_allow_thirdparty = value.into(),
 		"enable_upnp" => match parse_bool(value) {
 			Some(v) => op.enable_upnp = v,
 			None => return false,
 		},
-		"lease_file" => op.lease_file = value.to_string(),
-		"lease_file6" => op.lease_file6 = value.to_string(),
+		"lease_file" => op.lease_file = value.into(),
+		"lease_file6" => op.lease_file6 = value.into(),
 		#[cfg(feature = "igd2")]
 		"force_igd_desc_v1" => match parse_bool(value) {
 			Some(v) => op.force_igd_desc_v1 = v,
 			None => return false,
 		},
-		"minissdpdsocket" => op.minissdpdsocket = Some(PathBuf::from(value)),
+		"minissdpdsocket" => op.minissdpdsocket = Some(value.into()),
 		"secure_mode" => match parse_bool(value) {
 			Some(v) => op.secure_mode = v,
 			None => return false,
@@ -402,14 +407,13 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 	true
 }
 
-pub fn readoptionsfile(fname: &Path, _debug_flag: bool) -> Result<Options, io::Error> {
+pub fn readoptionsfile(fname: &str, _debug_flag: bool) -> Result<Options, io::Error> {
 	trace!("Reading configuration from file {:?}", fname);
 	let mut file = File::open(fname)?;
 
 	let mut buf = [0; 1024];
 	let mut reader = StackBufferReader::new(&mut buf);
 
-	let mut perms = vec![];
 	let mut option = Options::default();
 
 	while let Some(Ok(line_buf)) = reader.read_line(&mut file) {
@@ -417,22 +421,17 @@ pub fn readoptionsfile(fname: &Path, _debug_flag: bool) -> Result<Options, io::E
 			Ok(v) => v,
 			Err(_) => continue,
 		};
-		if line.trim_start().is_empty() || line.trim_start().starts_with('#') {
-			continue;
-		}
 		let line_ = line.trim_start();
-		if line_.starts_with("allow") | line_.starts_with("deny") {
-			let perm = read_permission_line(line_)?;
-			perms.push(perm);
+		if line_.is_empty() || line_.starts_with('#') {
 			continue;
 		}
+
 		if let Some((key, value)) = line_.split_once(['=', ' ']) {
 			if !parse_option_line(&mut option, key, value, line_) {
 				error!("cannot parse option {}", line_);
 			}
 		}
 	}
-	option.upnpperms = perms;
 
 	Ok(option)
 }

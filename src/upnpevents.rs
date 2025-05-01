@@ -453,11 +453,6 @@ pub fn upnpevents_processfds(rt: &mut RtOptions, readset: &mut FdSet, writeset: 
 		let obj = &mut rt.notify_list[i];
 
 		if obj.state == EError || obj.state == EFinished {
-			// 关闭socket
-			if obj.s.as_raw_fd() >= 0 {
-				obj.s.shutdown(std::net::Shutdown::Both).ok();
-			}
-
 			obj.sub.borrow_mut().notify = None;
 
 			// 如果是错误状态,同时移除subscriber
@@ -471,7 +466,6 @@ pub fn upnpevents_processfds(rt: &mut RtOptions, readset: &mut FdSet, writeset: 
 				rt.subscriber_list.retain(|s| s.borrow().uuid == obj.sub.borrow().uuid);
 			}
 
-			// 移除通知对象
 			rt.notify_list.swap_remove(i);
 			continue;
 		}
