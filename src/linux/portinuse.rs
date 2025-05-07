@@ -35,7 +35,7 @@ pub(super) fn port_in_use(
 		if unsafe {
 			libc::sscanf(
 				line.as_ptr() as _,
-				c"%*d: %64[0-9A-Fa-f]:%x %*x:%*x %*x %*x:%*x %*x:%*x %*x %*d %*d %*llu".as_ptr(),
+				c"%*d: %64[0-9A-Fa-f]:%x %*x:%*x %*x %*x:%*x %*x:%*x %*x %*d %*d %*u".as_ptr(),
 				eaddr.as_mut_ptr(),
 				&mut tmp_port,
 			)
