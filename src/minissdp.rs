@@ -24,9 +24,12 @@ use std::{io, mem};
 const VERSION_STR_MAP: [&str; 3] = ["", "1", "2"];
 const SSDP_PORT: u16 = 1900;
 const SSDP_MCAST_ADDR: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
+
 const LL_SSDP_MCAST_ADDR: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xc);
 const SL_SSDP_MCAST_ADDR: Ipv6Addr = Ipv6Addr::new(0xff05, 0, 0, 0, 0, 0, 0, 0xc);
 const GL_SSDP_MCAST_ADDR: Ipv6Addr = Ipv6Addr::new(0xff0e, 0, 0, 0, 0, 0, 0, 0xc);
+
+const mcast_addrs: &[Ipv6Addr] = &[LL_SSDP_MCAST_ADDR, SL_SSDP_MCAST_ADDR, GL_SSDP_MCAST_ADDR];
 
 fn AddMulticastMembership(lan: &lan_addr_s, socket: &Socket) -> io::Result<()> {
 	let interface = if lan.index != 0 {
@@ -437,7 +440,7 @@ fn SendSSDPNotifies(
 	lifetime: u32,
 	ipv6: bool,
 ) {
-	const mcast_addrs: &[Ipv6Addr] = &[LL_SSDP_MCAST_ADDR, SL_SSDP_MCAST_ADDR, GL_SSDP_MCAST_ADDR];
+
 
 	for addr in mcast_addrs {
 		let dest = if ipv6 {
@@ -819,11 +822,8 @@ fn SendSSDPbyebye(
 	usn3: &str,
 ) -> io::Result<usize> {
 	let bootid = upnp_bootid.load(Relaxed);
-	sendto_or_schedule(
-		send_list,
-		s,
-		format!(
-			"NOTIFY * HTTP/1.1\r\n\
+	let data = format!(
+		"NOTIFY * HTTP/1.1\r\n\
 		HOST: {dest}:{SSDP_PORT}\r\n\
 		NT: {nt}{suffix}\r\n\
 		USN: {usn1}{usn2}{usn3}{suffix}\r\n\
@@ -831,32 +831,41 @@ fn SendSSDPbyebye(
 		01-NLS: {bootid}\r\n\
 		BOOTID.UPNP.ORG: {bootid}\r\n\
 		CONFIGID.UPNP.ORG: {upnp_configid}\r\n\r\n"
-		)
-		.as_bytes(),
+	);
+	match sendto_or_schedule(
+		send_list,
+		s,
+		data.as_bytes(),
 		0,
 		dest,
-	)
+	) {
+		Ok(l) => {
+			if l != data.len() {
+				notice!("sendto() sent {} out of {} bytes", l, data.len());
+			}
+			Ok(l)
+		},
+		Err(e) => {
+			error!("sendto(udp_shutdown={}) to {}: %m", s.as_raw_fd(), dest);
+			Err(e)
+		}
+	}
 }
 
 pub fn SendSSDPGoodbye(
-	send_list: &mut Vec<crate::asyncsendto::scheduled_send>,
+	send_list: &mut Vec<scheduled_send>,
 	sockets: &[Rc<Socket>],
 ) -> io::Result<i32> {
 	let mut ok_cnt = 0;
-	for j in 0..sockets.len() {
-		let sockaddr = if j & 1 != 0 {
-			SocketAddrV6::new(LL_SSDP_MCAST_ADDR, SSDP_PORT, 0, 0).into()
-		} else {
-			SocketAddrV4::new(SSDP_MCAST_ADDR, SSDP_PORT).into()
-		};
 
+	let mut send_by_socket = |s:&Rc<Socket>, sockaddr: SocketAddr| {
 		for st in known_service_types {
 			let version_str = VERSION_STR_MAP[st.version as usize];
 			let uuid_str = format!("uuid:{}", st.uuid.get().unwrap());
 
 			if let Ok(_) = SendSSDPbyebye(
 				send_list,
-				&sockets[j],
+				s,
 				sockaddr,
 				st.s,
 				version_str,
@@ -870,7 +879,7 @@ pub fn SendSSDPGoodbye(
 			if st.s.starts_with("urn:schemas-upnp-org:device") {
 				if let Ok(_) = SendSSDPbyebye(
 					send_list,
-					&sockets[j],
+					s,
 					sockaddr,
 					uuid_str.as_str(),
 					"",
@@ -882,6 +891,17 @@ pub fn SendSSDPGoodbye(
 				}
 			}
 		}
+	};
+
+	for j in 0..sockets.len() {
+		if j & 1 != 0 {
+			for ip in mcast_addrs {
+				let addr = SocketAddrV6::new(*ip, SSDP_PORT, 0, 0).into();
+				send_by_socket(&sockets[j], addr);
+			}
+		} else {
+			send_by_socket(&sockets[j], SocketAddrV4::new(SSDP_MCAST_ADDR, SSDP_PORT).into());
+		};
 	}
 	Ok(ok_cnt)
 }
