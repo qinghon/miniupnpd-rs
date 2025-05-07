@@ -689,7 +689,7 @@ pub fn ProcessSSDPData(
 		{
 			continue;
 		}
-		info!("Single search found");
+		debug!("Single search found: {}", kst.s);
 
 		#[cfg(feature = "strict")]
 		{
@@ -713,7 +713,7 @@ pub fn ProcessSSDPData(
 	if st.len() == 8 && st == "ssdp:all" {
 		let delay_increment = (mx_value as u32 * 1000) / 15;
 
-		info!("ssdp:all found");
+		debug!("ssdp:all found");
 		for (idx, kst) in known_service_types.iter().enumerate() {
 			delay += delay_increment;
 
@@ -791,7 +791,7 @@ pub fn ProcessSSDPData(
 				|| &st_uuid == uuidvalue_wan.get().unwrap()
 				|| &st_uuid == uuidvalue_wcd.get().unwrap()
 			{
-				info!("ssdp:uuid (IGD/WAN/WCD) found");
+				debug!("ssdp:uuid (IGD/WAN/WCD) found");
 				SendSSDPResponse(
 					send_list,
 					s,

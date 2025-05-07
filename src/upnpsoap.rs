@@ -349,7 +349,7 @@ fn AddPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	};
 	let op = global_option.get().unwrap();
 	if GETFLAG!(op.runtime_flag, SECUREMODEMASK) && h.clientaddr != IpAddr::V4(iaddr) {
-		info!("Client {} tried to redirect port to {}", h.clientaddr, int_ip);
+		info!("{}: Client {} tried to redirect port to {}", action, h.clientaddr, int_ip);
 		if cfg!(feature = "igd2") {
 			SoapError(h, 606, "Action not authorized");
 		} else {
@@ -538,7 +538,7 @@ fn AddAnyPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	let op = global_option.get().unwrap();
 
 	if GETFLAG!(op.runtime_flag, SECUREMODEMASK) && h.clientaddr != IpAddr::V4(iaddr) {
-		info!("Client {} tried to redirect port to {}", h.clientaddr, int_ip);
+		info!("{}: Client {} tried to redirect port to {}", action, h.clientaddr, int_ip);
 		SoapError(h, 606, "Action not authorized");
 		return;
 	}
