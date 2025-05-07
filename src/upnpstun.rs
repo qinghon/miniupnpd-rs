@@ -407,7 +407,8 @@ pub fn perform_stun(
 			continue;
 		}
 		if mapped_addrs[i].port() != local_ports[i] || mapped_addrs[i].ip() != ext_addr.ip() {
-			notice!("perform_stun: #{} external address or port changed", i);
+			notice!("perform_stun: #{} external address or port changed: {} => {}", 
+				i, mapped_addrs[i], local_ports[i]);
 			*restrictive_nat = 1;
 		}
 	}
