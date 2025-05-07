@@ -13,10 +13,10 @@ then
 echo "Table $TABLE already exists"
 exit 0
 fi
-
+TMPFILE=$(mktemp)
 echo "Creating nftables structure"
 
-cat > /tmp/miniupnpd.nft <<EOF
+cat > ${TMPFILE} <<EOF
 table inet $TABLE {
     chain forward {
         type filter hook forward priority 0;
@@ -36,14 +36,14 @@ EOF
 
 if [ "$TABLE" != "$NAT_TABLE" ]
 then
-cat >> /tmp/miniupnpd.nft <<EOF
+cat >> ${TMPFILE} <<EOF
 }
 
 table inet $NAT_TABLE {
 EOF
 fi
 
-cat >> /tmp/miniupnpd.nft <<EOF
+cat >> ${TMPFILE} <<EOF
     chain prerouting {
         type nat hook prerouting priority -100;
         policy accept;
@@ -72,4 +72,6 @@ cat >> /tmp/miniupnpd.nft <<EOF
 }
 EOF
 
-$NFT -f /tmp/miniupnpd.nft
+$NFT -f ${TMPFILE}
+
+rm ${TMPFILE}
