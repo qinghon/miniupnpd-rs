@@ -2,7 +2,7 @@ use crate::getifaddr::{addr_is_reserved, getifaddr};
 #[cfg(feature = "pcp_sadscp")]
 use crate::pcplearndscp::{dscp_value, read_learn_dscp_line};
 use crate::upnpevents::{subscriber, upnp_event_notify};
-use crate::upnpglobalvars::lan_addr_s;
+use crate::upnpglobalvars::{lan_addr_s, IGNOREPRIVATEIPMASK};
 pub use crate::upnppermissions::{read_permission_line, upnpperm};
 use crate::uuid::UUID;
 use crate::warp::{IfName, StackBufferReader};
@@ -81,7 +81,7 @@ pub struct Options {
 
 	// re-generation once init flag
 	pub upnp_bootid: u32,
-	pub runtime_flag: u32,
+	pub runtime_flags: u32,
 }
 
 // Usually, manually implementing send/sync is not multi-threaded safe,
@@ -143,7 +143,7 @@ impl Default for Options {
 			dscp_value: vec![],
 
 			upnp_bootid: 0,
-			runtime_flag: 0,
+			runtime_flags: 0,
 		}
 	}
 }
@@ -161,7 +161,7 @@ pub struct RtOptions {
 	pub ssl_ctx: *mut SSL_CTX,
 }
 
-pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str) -> i32 {
+pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str, runtime_flag: u32) -> i32 {
 	if let Ok(ifname) = IfName::from_str(lan) {
 		if getifaddr(&ifname, &mut lan_addr.addr, Some(&mut lan_addr.mask)) <= 0 {
 			lan_addr.index = ifname.index();
@@ -186,7 +186,7 @@ pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str) -> i32 {
 			}
 		}
 	}
-	if !addr_is_reserved(&lan_addr.addr) {
+	if !addr_is_reserved(&lan_addr.addr) && !GETFLAG!(runtime_flag, IGNOREPRIVATEIPMASK) {
 		println!("Error: LAN address contains public IP address : {}", lan_addr.addr);
 		println!("Public IP address can be configured via ext_ip= option");
 		println!("LAN address should contain private address, e.g. from 192.168. block");
@@ -222,6 +222,11 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 			}
 			Err(_) => return false,
 		},
+		"ignore_private_ip"=> match parse_bool(value) {
+			Some(true) => SETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK),
+			Some(false) => {},
+			None => return false,
+		},
 		"ext_perform_stun" => match parse_bool(value) {
 			Some(v) => {
 				op.ext_perform_stun = v;
@@ -236,7 +241,7 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 		}
 		"listening_ip" => {
 			let mut lan_addr = Default::default();
-			if parselanaddr(&mut lan_addr, value) >= 0 {
+			if parselanaddr(&mut lan_addr, value, op.runtime_flags) >= 0 {
 				op.listening_ip.push(lan_addr);
 			} else {
 				return false;
@@ -458,12 +463,12 @@ mod tests {
 	#[test]
 	fn test_parse_lan() {
 		let mut lan_addr = Default::default();
-		assert_eq!(parselanaddr(&mut lan_addr, "127.0.0.1"), 0);
-		assert_eq!(parselanaddr(&mut lan_addr, "127.0.0.1/8"), 0);
+		assert_eq!(parselanaddr(&mut lan_addr, "127.0.0.1", 0), 0);
+		assert_eq!(parselanaddr(&mut lan_addr, "127.0.0.1/8", 0), 0);
 		#[cfg(target_family = "unix")]
 		{
 			// let lan = parselanaddr("lo").unwrap();
-			assert!(parselanaddr(&mut lan_addr, "lo") >= 0);
+			assert!(parselanaddr(&mut lan_addr, "lo", 0) >= 0);
 			assert_eq!(lan_addr.addr, Ipv4Addr::new(127, 0, 0, 1));
 		}
 	}

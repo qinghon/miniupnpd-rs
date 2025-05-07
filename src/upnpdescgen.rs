@@ -885,7 +885,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 
 				#[cfg(feature = "ipv6")]
 				FIREWALLENABLED_MAGICALVALUE => {
-					let runtime_flag = global_option.get().unwrap().runtime_flag;
+					let runtime_flag = global_option.get().unwrap().runtime_flags;
 					result.push_str(if GETFLAG!(runtime_flag, IPV6FCFWDISABLEDMASK) {
 						"0"
 					} else {
@@ -895,7 +895,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 
 				#[cfg(feature = "ipv6")]
 				INBOUNDPINHOLEALLOWED_MAGICALVALUE => {
-					let runtime_flag = global_option.get().unwrap().runtime_flag;
+					let runtime_flag = global_option.get().unwrap().runtime_flags;
 					result.push_str(if GETFLAG!(runtime_flag, IPV6FCINBOUNDDISALLOWEDMASK) {
 						"0"
 					} else {
@@ -920,7 +920,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 						let ext_if_name = &op.ext_ifname;
 						let mut addr = Ipv4Addr::UNSPECIFIED;
 						if getifaddr(ext_if_name, &mut addr, None) == 0 {
-							if addr_is_reserved(&addr) {
+							if addr_is_reserved(&addr) && !GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK) {
 								result.push_str("0.0.0.0");
 							} else {
 								result.write_fmt(format_args!("{}", addr)).unwrap();

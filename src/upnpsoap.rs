@@ -257,7 +257,7 @@ fn GetExternalIPAddress(h: &mut upnphttp, action: &str, ns: &str) {
 		} else {
 			let mut if_addr = Ipv4Addr::UNSPECIFIED;
 			if getifaddr(&op.ext_ifname, &mut if_addr, None) == 0 {
-				if addr_is_reserved(&if_addr) {
+				if addr_is_reserved(&if_addr) && !GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK) {
 					notice!(
 						"private/reserved address {} is not suitable for external IP",
 						ext_ip_addr
@@ -348,7 +348,7 @@ fn AddPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 		}
 	};
 	let op = global_option.get().unwrap();
-	if GETFLAG!(op.runtime_flag, SECUREMODEMASK) && h.clientaddr != IpAddr::V4(iaddr) {
+	if GETFLAG!(op.runtime_flags, SECUREMODEMASK) && h.clientaddr != IpAddr::V4(iaddr) {
 		info!("{}: Client {} tried to redirect port to {}", action, h.clientaddr, int_ip);
 		if cfg!(feature = "igd2") {
 			SoapError(h, 606, "Action not authorized");
@@ -537,7 +537,7 @@ fn AddAnyPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 
 	let op = global_option.get().unwrap();
 
-	if GETFLAG!(op.runtime_flag, SECUREMODEMASK) && h.clientaddr != IpAddr::V4(iaddr) {
+	if GETFLAG!(op.runtime_flags, SECUREMODEMASK) && h.clientaddr != IpAddr::V4(iaddr) {
 		info!("{}: Client {} tried to redirect port to {}", action, h.clientaddr, int_ip);
 		SoapError(h, 606, "Action not authorized");
 		return;
@@ -689,7 +689,7 @@ fn DeletePortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	let op = global_option.get().unwrap();
 	let rt = h.rt_options.as_mut().unwrap();
 	let proto = proto_atoi(protocol);
-	if GETFLAG!(op.runtime_flag, SECUREMODEMASK) {
+	if GETFLAG!(op.runtime_flags, SECUREMODEMASK) {
 		if let Some(e) = upnp_get_redirection_infos(&rt.nat_impl, eport, proto) {
 			if h.clientaddr != IpAddr::V4(e.daddr) {
 				if cfg!(feature = "igd2") {
@@ -1035,12 +1035,12 @@ fn QueryStateVariable(h: &mut upnphttp, action: &str, ns: &str) {
 #[cfg(feature = "ipv6")]
 fn GetFirewallStatus(h: &mut upnphttp, action: &str, ns: &str) {
 	let op = global_option.get().unwrap();
-	let firewall_enabled: u8 = if GETFLAG!(op.runtime_flag, IPV6FCFWDISABLEDMASK) {
+	let firewall_enabled: u8 = if GETFLAG!(op.runtime_flags, IPV6FCFWDISABLEDMASK) {
 		0
 	} else {
 		1
 	};
-	let inbound_pinhole_allowed: u8 = if GETFLAG!(op.runtime_flag, IPV6FCINBOUNDDISALLOWEDMASK) {
+	let inbound_pinhole_allowed: u8 = if GETFLAG!(op.runtime_flags, IPV6FCINBOUNDDISALLOWEDMASK) {
 		0
 	} else {
 		1
@@ -1059,7 +1059,7 @@ fn GetFirewallStatus(h: &mut upnphttp, action: &str, ns: &str) {
 }
 #[cfg(feature = "ipv6")]
 fn CheckStatus(h: &mut upnphttp) -> bool {
-	let runtime_flag = global_option.get().unwrap().runtime_flag;
+	let runtime_flag = global_option.get().unwrap().runtime_flags;
 	if GETFLAG!(runtime_flag, IPV6FCFWDISABLEDMASK) {
 		SoapError(h, 702, "FirewallDisabled");
 		false
@@ -1300,7 +1300,7 @@ fn UpdatePinhole(h: &mut upnphttp, action: &str, ns: &str) {
 #[cfg(feature = "ipv6")]
 fn GetOutboundPinholeTimeout(h: &mut upnphttp, action: &str, ns: &str) {
 	let op = global_option.get().unwrap();
-	if GETFLAG!(op.runtime_flag, IPV6FCFWDISABLEDMASK) {
+	if GETFLAG!(op.runtime_flags, IPV6FCFWDISABLEDMASK) {
 		SoapError(h, 702, "FirewallDisabled");
 		return;
 	}

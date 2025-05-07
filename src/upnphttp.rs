@@ -694,7 +694,7 @@ fn ProcessHttpQuery_upnphttp(h: &mut upnphttp) {
 			return;
 		}
 	}
-	let runtime_flags = global_option.get().unwrap().runtime_flag;
+	let runtime_flags = global_option.get().unwrap().runtime_flags;
 	let http_command = h.get_req_str_from(command_off);
 
 	match http_command {

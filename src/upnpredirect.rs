@@ -2,7 +2,7 @@ use crate::RuleTable::Redirect;
 use crate::options::RtOptions;
 use crate::upnpevents::subscriber_service_enum::EWanIPC;
 use crate::upnpevents::upnp_event_var_change_notify;
-use crate::upnpglobalvars::global_option;
+use crate::upnpglobalvars::{global_option, IGNOREPRIVATEIPMASK};
 use crate::upnppermissions::check_upnp_rule_against_permissions;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
 use crate::warp::StackBufferReader;
@@ -269,7 +269,7 @@ pub fn upnp_redirect_internal(
 ) -> i32 {
 	let v = global_option.get().unwrap();
 
-	if rt.disable_port_forwarding {
+	if rt.disable_port_forwarding && !GETFLAG!(v.runtime_flags, IGNOREPRIVATEIPMASK) {
 		return -1;
 	}
 	if rt.nat_impl.add_redirect_rule2(&v.ext_ifname, rhost, iaddr, eport, iport, proto, desc, timestamp) < 0 {

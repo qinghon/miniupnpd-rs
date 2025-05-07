@@ -318,7 +318,7 @@ extern "C" fn sigterm(_sig: i32) {
 extern "C" fn sigusr1(_sig: i32) {
 	should_send_public_address_change_notif.store(true, Relaxed);
 }
-#[inline(never)]
+
 fn set_startup_time(runtime_flag: u32) {
 	let mut startup_time_ = upnp_time();
 
@@ -481,7 +481,6 @@ fn init(
 	v: &mut Option<Options>,
 	rt: &mut RtOptions,
 	rtv: &mut runtime_vars,
-	runtime_flags: &mut u32,
 	pidfilename: &mut String,
 ) -> i32 {
 	let mut debug_flag = false;
@@ -521,7 +520,6 @@ fn init(
 	}
 	log::openlog(c"miniupnpd", openlog_option, log::LOG_DAEMON);
 
-	*runtime_flags |= ENABLEUPNPMASK | SECUREMODEMASK;
 
 	let ret = options::readoptionsfile(optionsfile, debug_flag);
 	let mut option = match ret {
@@ -547,6 +545,7 @@ fn init(
 		print_usage(pidfilename.as_str(), optionsfile);
 		return -1;
 	}
+	SETFLAG!(option.runtime_flags, ENABLEUPNPMASK | SECUREMODEMASK);
 
 	let mut uuid_seted = false;
 	let mut idx = 1usize;
@@ -715,7 +714,7 @@ fn init(
 			b'a' => {
 				option.listening_ip = vec![];
 				let mut lan_addr = lan_addr_s::default();
-				if parselanaddr(&mut lan_addr, args[idx + 1].as_str()) < 0 {
+				if parselanaddr(&mut lan_addr, args[idx + 1].as_str(), option.runtime_flags) < 0 {
 					print_usage(pidfilename.as_str(), optionsfile);
 					return -1;
 				}
@@ -742,7 +741,7 @@ fn init(
 	}
 
 	if option.ext_perform_stun {
-		SETFLAG!(*runtime_flags, PERFORMSTUNMASK);
+		SETFLAG!(option.runtime_flags, PERFORMSTUNMASK);
 	}
 
 	if !option.upnp_table_name.is_empty() {
@@ -764,10 +763,10 @@ fn init(
 		rt.nat_impl.set_rdr_name(RDR_FAMILY_SPLIT, "yes");
 	}
 	if option.enable_natpmp {
-		SETFLAG!(*runtime_flags, ENABLENATPMPMASK);
+		SETFLAG!(option.runtime_flags, ENABLENATPMPMASK);
 	}
 	if option.system_uptime {
-		SETFLAG!(*runtime_flags, SYSUPTIMEMASK);
+		SETFLAG!(option.runtime_flags, SYSUPTIMEMASK);
 	}
 	if option.ext_ip.is_some() && rt.use_ext_ip_addr.is_none() {
 		rt.use_ext_ip_addr = option.ext_ip.map(|x| x.into());
@@ -825,7 +824,7 @@ fn init(
 		error!("MiniUPnPd is already running. EXITING");
 		return 1;
 	}
-	set_startup_time(*runtime_flags);
+	set_startup_time(option.runtime_flags);
 
 	if setup_signal_handle() != 0 {
 		return 1;
@@ -878,7 +877,7 @@ fn main() {
 	let mut next_pinhole_ts;
 	let mut op = None;
 	// let mut use_ext_ip_addr = None;
-	let mut runtime_flags = 0u32;
+	// let mut runtime_flags = 0u32;
 	let mut disable_port_forwarding = false;
 	let mut send_list = Vec::new();
 	let fw_impl: nat_impl = nat_impl::init();
@@ -897,7 +896,7 @@ fn main() {
 		#[cfg(feature = "https")]
 		ssl_ctx: ptr::null_mut(),
 	};
-	if init(&mut op, &mut rt_options, &mut rtv, &mut runtime_flags, &mut pidfilename) != 0 {
+	if init(&mut op, &mut rt_options, &mut rtv, &mut pidfilename) != 0 {
 		eprintln!("Failed to initialize miniupnpd.");
 		return;
 	}
@@ -914,12 +913,12 @@ fn main() {
 	info!(
 		"version {} starting {} {} ext if {} BOOTID={}",
 		env!("CARGO_PKG_VERSION"),
-		if GETFLAG!(runtime_flags, ENABLENATPMPMASK) {
+		if GETFLAG!(v.runtime_flags, ENABLENATPMPMASK) {
 			"NAT-PMP/PCP"
 		} else {
 			" "
 		},
-		if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {
+		if GETFLAG!(v.runtime_flags, ENABLEUPNPMASK) {
 			"UPnP-IGD "
 		} else {
 			""
@@ -931,14 +930,12 @@ fn main() {
 		info!("specific IPv6 ext if {}", v.ext_ifname);
 	}
 
-	if GETFLAG!(runtime_flags, PERFORMSTUNMASK) {
+	if GETFLAG!(v.runtime_flags, PERFORMSTUNMASK) {
 		if update_ext_ip_addr_from_stun(&v, rt, true, &v.ext_ifname, &mut disable_port_forwarding) != 0 {
 			error!("Performing STUN failed. EXITING");
 			return;
 		}
 	} else if rt.use_ext_ip_addr.is_none() {
-		// let mut if_addr: [libc::c_char; 16] = [0; 16];
-		// let mut addr: in_addr = in_addr { s_addr: 0 };
 		let mut addr = Ipv4Addr::UNSPECIFIED;
 		let ext_if_name = &v.ext_ifname;
 
@@ -948,13 +945,16 @@ fn main() {
 				ext_if_name
 			);
 			disable_port_forwarding = true;
-		} else if addr_is_reserved(&addr) {
+		} else if addr_is_reserved(&addr) && !GETFLAG!(v.runtime_flags, IGNOREPRIVATEIPMASK) {
 			info!(
 				"Reserved / private IP address {} on ext interface {}: Port forwarding is impossible",
 				addr, ext_if_name,
 			);
 			info!("You are probably behind NAT, enable option ext_perform_stun=yes to detect public IP address");
 			info!("Or use ext_ip= / -o option to declare public IP address");
+			info!("In case that miniupnpd is thinking that it's behind symmetric NAT while it actually is full-cone");
+			info!("You can enable option ignore_private_ip=yes to force enable port forwarding");
+			info!("But you may still need to configure stun server or ext_ip to make it work correctly");
 			info!("Public IP address is required by UPnP/PCP/PMP protocols and clients do not work without it");
 			disable_port_forwarding = true;
 		}
@@ -962,14 +962,15 @@ fn main() {
 
 	set_os_version();
 
-	if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {
+	if GETFLAG!(v.runtime_flags, ENABLEUPNPMASK) {
 		let mut listen_port: u16;
 		listen_port = if v.port > 0 { v.port } else { 0 };
+		let mut flags = v.runtime_flags;
 		shttpl = match OpenAndConfHTTPSocket(
 			&v,
 			&mut listen_port,
-			!GETFLAG!(runtime_flags, IPV6DISABLEDMASK),
-			&mut runtime_flags,
+			!GETFLAG!(v.runtime_flags, IPV6DISABLEDMASK),
+			&mut flags,
 		) {
 			Ok(s) => Some(s),
 			Err(e) => {
@@ -977,15 +978,17 @@ fn main() {
 				return;
 			}
 		};
+		v.runtime_flags = flags;
 
 		#[cfg(feature = "https")]
 		{
 			listen_port = if v.https_port > 0 { v.https_port } else { 0 };
+			let mut flags = v.runtime_flags;
 			shttpsl = match OpenAndConfHTTPSocket(
 				&v,
 				&mut listen_port,
-				!GETFLAG!(runtime_flags, IPV6DISABLEDMASK),
-				&mut runtime_flags,
+				!GETFLAG!(v.runtime_flags, IPV6DISABLEDMASK),
+				&mut flags,
 			) {
 				Ok(s) => Some(s),
 				Err(e) => {
@@ -993,13 +996,14 @@ fn main() {
 					return;
 				}
 			};
+			v.runtime_flags = flags;
 			notice!("HTTPS listening on port {}", v.https_port);
 		}
 
 		v.port = listen_port;
 		notice!("HTTP listening on port {} ", v.port);
 		#[cfg(feature = "ipv6")]
-		if !GETFLAG!(runtime_flags, IPV6DISABLEDMASK) {
+		if !GETFLAG!(v.runtime_flags, IPV6DISABLEDMASK) {
 			match miniupnpd_rs::getifaddr::find_ipv6_addr(&v.listening_ip[0].ifname) {
 				Some(addr) => {
 					notice!("HTTP IPv6 address given to control points : {}", addr);
@@ -1008,7 +1012,7 @@ fn main() {
 				None => {
 					let _ = ipv6_addr_for_http_with_brackets.set(Ipv6Addr::LOCALHOST);
 					warn!("no HTTP IPv6 address, disabling IPv6");
-					SETFLAG!(runtime_flags, IPV6DISABLEDMASK);
+					SETFLAG!(v.runtime_flags, IPV6DISABLEDMASK);
 				}
 			}
 		}
@@ -1027,7 +1031,7 @@ fn main() {
 			}
 		};
 
-		if !GETFLAG!(runtime_flags, IPV6DISABLEDMASK) {
+		if !GETFLAG!(v.runtime_flags, IPV6DISABLEDMASK) {
 			match OpenAndConfSSDPReceiveSocket(&v, true) {
 				Ok(s) => sudpv6 = Some(Rc::new(s)),
 				Err(_) => {
@@ -1035,7 +1039,7 @@ fn main() {
 				}
 			}
 		}
-		match OpenAndConfSSDPNotifySockets(&v, runtime_flags) {
+		match OpenAndConfSSDPNotifySockets(&v, v.runtime_flags) {
 			Ok(s) => snotify = s.into_iter().map(|x| Rc::new(x)).collect::<Vec<_>>(),
 			Err(_) => {
 				error!("Failed to open sockets for sending SSDP notify messages. EXITING");
@@ -1049,7 +1053,7 @@ fn main() {
 			}
 		}
 	}
-	if GETFLAG!(runtime_flags, ENABLENATPMPMASK) {
+	if GETFLAG!(v.runtime_flags, ENABLENATPMPMASK) {
 		match OpenAndConfNATPMPSockets(&v) {
 			Err(e) => error!("Failed to open sockets for NAT-PMP/PCP.: {}", e),
 			Ok(socks) => {
@@ -1059,13 +1063,13 @@ fn main() {
 		}
 	}
 	#[cfg(feature = "ipv6")]
-	if GETFLAG!(runtime_flags, IPV6DISABLEDMASK) {
+	if GETFLAG!(v.runtime_flags, IPV6DISABLEDMASK) {
 		spcp_v6 = OpenAndConfPCPv6Socket(&v).ok().map(|x| Rc::new(x));
 	}
-	v.runtime_flag = runtime_flags;
+	// v.runtime_flags |= runtime_flags;
 	let _ = global_option.set(v);
-
-	if GETFLAG!(runtime_flags, ENABLENATPMPMASK) {
+	let op = global_option.get().unwrap();
+	if GETFLAG!(op.runtime_flags, ENABLENATPMPMASK) {
 		PCPSendUnsolicitedAnnounce(rt, send_list.as_mut(), snatpmp.as_ref(), spcp_v6.as_ref());
 	}
 
@@ -1077,20 +1081,19 @@ fn main() {
 		upnp_update_status(rt);
 		systemd_notify(&mut rtv, "READY=1");
 	}
-
+	
 	while quitting.load(Relaxed) == 0 {
 		if upnp_bootid.load(Relaxed) < (60 * 60 * 24) && upnp_time() > Duration::from_secs(24 * 60 * 60) {
 			upnp_bootid.store(upnp_time().as_secs() as u32, Relaxed);
 		}
 		if should_send_public_address_change_notif.load(Relaxed) {
 			info!("should send external iface address change notification(s)");
-			if GETFLAG!(runtime_flags, PERFORMSTUNMASK) {
-				let op = global_option.get().unwrap();
+			if GETFLAG!(op.runtime_flags, PERFORMSTUNMASK) {
 				if update_ext_ip_addr_from_stun(op, rt, false, &op.ext_ifname, &mut disable_port_forwarding) != 0 {
 					disable_port_forwarding = true;
 				}
 			} else if rt.use_ext_ip_addr.is_none() {
-				let op = global_option.get().unwrap();
+				
 				let ext_if_name = &op.ext_ifname;
 				let mut if_addr = Ipv4Addr::UNSPECIFIED;
 
@@ -1101,7 +1104,7 @@ fn main() {
 					);
 					disable_port_forwarding = true;
 				} else {
-					let reserved = addr_is_reserved(&if_addr);
+					let reserved = addr_is_reserved(&if_addr) && !GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK);
 					if !disable_port_forwarding && reserved {
 						info!(
 							"Reserved / private IP address {} on ext interface {}: Port forwarding is impossible",
@@ -1124,13 +1127,13 @@ fn main() {
 					}
 				}
 			}
-			if GETFLAG!(runtime_flags, ENABLENATPMPMASK) {
+			if GETFLAG!(op.runtime_flags, ENABLENATPMPMASK) {
 				SendNATPMPPublicAddressChangeNotification(&mut send_list, rt, snatpmp.as_ref());
 			}
-			if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {
+			if GETFLAG!(op.runtime_flags, ENABLEUPNPMASK) {
 				upnp_event_var_change_notify(&mut rt.subscriber_list, EWanIPC);
 			}
-			if GETFLAG!(runtime_flags, ENABLENATPMPMASK) {
+			if GETFLAG!(op.runtime_flags, ENABLENATPMPMASK) {
 				PCPPublicAddressChanged(rt, &mut send_list, snatpmp.as_ref(), spcp_v6.as_ref());
 			}
 			should_send_public_address_change_notif.store(false, std::sync::atomic::Ordering::Release);
@@ -1138,8 +1141,7 @@ fn main() {
 		let timeofday = upnp_gettimeofday();
 
 		if timeofday >= lasttimeofday + Duration::from_secs(current_notify_interval as _) {
-			let op = global_option.get().unwrap();
-			if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {
+			if GETFLAG!(op.runtime_flags, ENABLEUPNPMASK) {
 				SendSSDPNotifies2(&mut send_list, &snotify, op.port, op.notify_interval << 1);
 			}
 			current_notify_interval = gen_current_notify_interval(op.notify_interval);
@@ -1407,7 +1409,7 @@ fn main() {
 		}
 	}
 
-	if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {
+	if GETFLAG!(op.runtime_flags, ENABLEUPNPMASK) {
 		if let Err(e) = SendSSDPGoodbye(&mut send_list, snotify.as_slice()) {
 			error!("Failed to broadcast good-bye notifications: {}", e);
 		}
@@ -1415,7 +1417,7 @@ fn main() {
 	finalize_sendto(&mut send_list);
 	drop(upnphttphead);
 
-	if GETFLAG!(runtime_flags, ENABLEUPNPMASK) {}
+	if GETFLAG!(op.runtime_flags, ENABLEUPNPMASK) {}
 	if !pidfilename.is_empty() {
 		if let Err(e) = fs::remove_file(pidfilename.as_str()) {
 			error!("Failed to remove pidfile {}: {}", pidfilename, e);

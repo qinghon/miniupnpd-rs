@@ -44,7 +44,7 @@ fn FillPublicAddressResponse(resp: &mut [u8], _senderaddr: Ipv4Addr) {
 		}
 		let mut ip = Ipv4Addr::UNSPECIFIED;
 		if getifaddr(&v.ext_ifname, &mut ip, None) == 0 {
-			if addr_is_reserved(&ip) {
+			if addr_is_reserved(&ip) && !GETFLAG!(v.runtime_flags, IGNOREPRIVATEIPMASK) {
 				resp[3] = 3;
 				return;
 			}

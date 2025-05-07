@@ -826,7 +826,7 @@ fn ValidatePCPMsg(pcp_msg_info: &mut pcp_info) -> i32 {
 	if let Some(third_ip) = pcp_msg_info.thirdp_ip {
 		let op = global_option.get().unwrap();
 
-		if !GETFLAG!(op.runtime_flag, PCP_ALLOWTHIRDPARTYMASK) {
+		if !GETFLAG!(op.runtime_flags, PCP_ALLOWTHIRDPARTYMASK) {
 			pcp_msg_info.result_code = PCP_ERR_UNSUPP_OPTION;
 			return 0;
 		}
@@ -1215,7 +1215,7 @@ pub fn ProcessIncomingPCPPacket(
 		return 0;
 	}
 	let op = global_option.get().unwrap();
-	if !GETFLAG!(op.runtime_flag, PCP_ALLOWTHIRDPARTYMASK) {
+	if !GETFLAG!(op.runtime_flags, PCP_ALLOWTHIRDPARTYMASK) {
 		let lan_addr = get_lan_for_peer(op, senderaddr);
 		if lan_addr.is_none() {
 			warn!("PCP packet sender {} not from a LAN, ignoring", senderaddr);
