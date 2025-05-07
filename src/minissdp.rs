@@ -440,8 +440,6 @@ fn SendSSDPNotifies(
 	lifetime: u32,
 	ipv6: bool,
 ) {
-
-
 	for addr in mcast_addrs {
 		let dest = if ipv6 {
 			SocketAddrV6::new(addr.clone().into(), SSDP_PORT, 0, 0).into()
@@ -832,19 +830,13 @@ fn SendSSDPbyebye(
 		BOOTID.UPNP.ORG: {bootid}\r\n\
 		CONFIGID.UPNP.ORG: {upnp_configid}\r\n\r\n"
 	);
-	match sendto_or_schedule(
-		send_list,
-		s,
-		data.as_bytes(),
-		0,
-		dest,
-	) {
+	match sendto_or_schedule(send_list, s, data.as_bytes(), 0, dest) {
 		Ok(l) => {
 			if l != data.len() {
 				notice!("sendto() sent {} out of {} bytes", l, data.len());
 			}
 			Ok(l)
-		},
+		}
 		Err(e) => {
 			error!("sendto(udp_shutdown={}) to {}: %m", s.as_raw_fd(), dest);
 			Err(e)
@@ -852,41 +844,21 @@ fn SendSSDPbyebye(
 	}
 }
 
-pub fn SendSSDPGoodbye(
-	send_list: &mut Vec<scheduled_send>,
-	sockets: &[Rc<Socket>],
-) -> io::Result<i32> {
+pub fn SendSSDPGoodbye(send_list: &mut Vec<scheduled_send>, sockets: &[Rc<Socket>]) -> io::Result<i32> {
 	let mut ok_cnt = 0;
 
-	let mut send_by_socket = |s:&Rc<Socket>, sockaddr: SocketAddr| {
+	let mut send_by_socket = |s: &Rc<Socket>, sockaddr: SocketAddr| {
 		for st in known_service_types {
 			let version_str = VERSION_STR_MAP[st.version as usize];
 			let uuid_str = format!("uuid:{}", st.uuid.get().unwrap());
 
-			if let Ok(_) = SendSSDPbyebye(
-				send_list,
-				s,
-				sockaddr,
-				st.s,
-				version_str,
-				uuid_str.as_str(),
-				"::",
-				st.s,
-			) {
+			if let Ok(_) = SendSSDPbyebye(send_list, s, sockaddr, st.s, version_str, uuid_str.as_str(), "::", st.s) {
 				ok_cnt += 1;
 			}
 
 			if st.s.starts_with("urn:schemas-upnp-org:device") {
-				if let Ok(_) = SendSSDPbyebye(
-					send_list,
-					s,
-					sockaddr,
-					uuid_str.as_str(),
-					"",
-					uuid_str.as_str(),
-					"",
-					"",
-				) {
+				if let Ok(_) = SendSSDPbyebye(send_list, s, sockaddr, uuid_str.as_str(), "", uuid_str.as_str(), "", "")
+				{
 					ok_cnt += 1;
 				}
 			}

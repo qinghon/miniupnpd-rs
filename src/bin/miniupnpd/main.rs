@@ -477,12 +477,7 @@ fn print_usage(pid_file: &str, config_file: &str) {
 	);
 }
 
-fn init(
-	v: &mut Option<Options>,
-	rt: &mut RtOptions,
-	rtv: &mut runtime_vars,
-	pidfilename: &mut String,
-) -> i32 {
+fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pidfilename: &mut String) -> i32 {
 	let mut debug_flag = false;
 	let mut verbosity_level: i32 = 0;
 	let mut openlog_option;
@@ -519,7 +514,6 @@ fn init(
 		openlog_option |= libc::LOG_PERROR;
 	}
 	log::openlog(c"miniupnpd", openlog_option, log::LOG_DAEMON);
-
 
 	let ret = options::readoptionsfile(optionsfile, debug_flag);
 	let mut option = match ret {
@@ -797,6 +791,22 @@ fn init(
 		error!("Error: options ext_ip= and ext_perform_stun=yes cannot be specified together");
 		return -1;
 	}
+	if let Some(IpAddr::V4(ext_ip)) = &rt.use_ext_ip_addr {
+		if addr_is_reserved(ext_ip) {
+			if GETFLAG!(option.runtime_flags, IGNOREPRIVATEIPMASK) {
+				warn!(
+					"IGNORED : option ext_ip contains reserved / private address {}, not public routable",
+					ext_ip
+				);
+			} else {
+				error!(
+					"Error: option ext_ip contains reserved / private address {}, not public routable",
+					ext_ip
+				);
+				return 1;
+			}
+		}
+	}
 	let pid = if debug_flag || systemd_flag {
 		unsafe { libc::getpid() }
 	} else {
@@ -945,18 +955,27 @@ fn main() {
 				ext_if_name
 			);
 			disable_port_forwarding = true;
-		} else if addr_is_reserved(&addr) && !GETFLAG!(v.runtime_flags, IGNOREPRIVATEIPMASK) {
-			info!(
-				"Reserved / private IP address {} on ext interface {}: Port forwarding is impossible",
-				addr, ext_if_name,
-			);
-			info!("You are probably behind NAT, enable option ext_perform_stun=yes to detect public IP address");
-			info!("Or use ext_ip= / -o option to declare public IP address");
-			info!("In case that miniupnpd is thinking that it's behind symmetric NAT while it actually is full-cone");
-			info!("You can enable option ignore_private_ip=yes to force enable port forwarding");
-			info!("But you may still need to configure stun server or ext_ip to make it work correctly");
-			info!("Public IP address is required by UPnP/PCP/PMP protocols and clients do not work without it");
-			disable_port_forwarding = true;
+		} else if addr_is_reserved(&addr) {
+			if GETFLAG!(v.runtime_flags, IGNOREPRIVATEIPMASK) {
+				warn!(
+					"IGNORED : Reserved / private IP address {} on ext interface {}",
+					addr, ext_if_name
+				);
+			} else {
+				warn!(
+					"Reserved / private IP address {} on ext interface {}: Port forwarding is impossible",
+					addr, ext_if_name,
+				);
+				info!("You are probably behind NAT, enable option ext_perform_stun=yes to detect public IP address");
+				info!("Or use ext_ip= / -o option to declare public IP address");
+				info!(
+					"In case that miniupnpd is thinking that it's behind symmetric NAT while it actually is full-cone"
+				);
+				info!("You can enable option ignore_private_ip=yes to force enable port forwarding");
+				info!("But you may still need to configure stun server or ext_ip to make it work correctly");
+				info!("Public IP address is required by UPnP/PCP/PMP protocols and clients do not work without it");
+				disable_port_forwarding = true;
+			}
 		}
 	}
 
@@ -1081,7 +1100,7 @@ fn main() {
 		upnp_update_status(rt);
 		systemd_notify(&mut rtv, "READY=1");
 	}
-	
+
 	while quitting.load(Relaxed) == 0 {
 		if upnp_bootid.load(Relaxed) < (60 * 60 * 24) && upnp_time() > Duration::from_secs(24 * 60 * 60) {
 			upnp_bootid.store(upnp_time().as_secs() as u32, Relaxed);
@@ -1093,7 +1112,6 @@ fn main() {
 					disable_port_forwarding = true;
 				}
 			} else if rt.use_ext_ip_addr.is_none() {
-				
 				let ext_if_name = &op.ext_ifname;
 				let mut if_addr = Ipv4Addr::UNSPECIFIED;
 
@@ -1104,20 +1122,31 @@ fn main() {
 					);
 					disable_port_forwarding = true;
 				} else {
-					let reserved = addr_is_reserved(&if_addr) && !GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK);
+					let reserved = addr_is_reserved(&if_addr);
 					if !disable_port_forwarding && reserved {
-						info!(
-							"Reserved / private IP address {} on ext interface {}: Port forwarding is impossible",
-							if_addr, ext_if_name
-						);
-						info!(
-							"You are probably behind NAT, enable option ext_perform_stun=yes to detect public IP address"
-						);
-						info!("Or use ext_ip= / -o option to declare public IP address");
-						info!(
-							"Public IP address is required by UPnP/PCP/PMP protocols and clients do not work without it"
-						);
-						disable_port_forwarding = true;
+						if GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK) {
+							warn!(
+								"IGNORED : Reserved / private IP address {} on ext interface {}.",
+								if_addr, ext_if_name
+							);
+						} else {
+							warn!(
+								"Reserved / private IP address {} on ext interface {}: Port forwarding is impossible",
+								if_addr, ext_if_name
+							);
+							info!(
+								"You are probably behind NAT, enable option ext_perform_stun=yes to detect public IP address"
+							);
+							info!("Or use ext_ip= / -o option to declare public IP address");
+							info!(
+								"In case that miniupnpd is thinking that it's behind symmetric NAT while it actually is full-cone"
+							);
+							info!("You can set option ignore_private_ip_check=yes to enable port forwarding");
+							info!(
+								"Public IP address is required by UPnP/PCP/PMP protocols and clients do not work without it"
+							);
+							disable_port_forwarding = true;
+						}
 					} else if disable_port_forwarding && !reserved {
 						info!(
 							"Public IP address {} on ext interface {}: Port forwarding is enabled",

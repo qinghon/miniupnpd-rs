@@ -2,7 +2,7 @@ use crate::RuleTable::Redirect;
 use crate::options::RtOptions;
 use crate::upnpevents::subscriber_service_enum::EWanIPC;
 use crate::upnpevents::upnp_event_var_change_notify;
-use crate::upnpglobalvars::{global_option, IGNOREPRIVATEIPMASK};
+use crate::upnpglobalvars::{IGNOREPRIVATEIPMASK, global_option};
 use crate::upnppermissions::check_upnp_rule_against_permissions;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
 use crate::warp::StackBufferReader;
@@ -138,8 +138,13 @@ pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> io::Resul
 
 		let leaseduration = if timestamp > 0 {
 			if timestamp as u64 <= current_time {
-				notice!("already expired lease in lease file ({}=>{}:{} {})",
-				eport, iaddr, iport, proto_itoa(proto));
+				notice!(
+					"already expired lease in lease file ({}=>{}:{} {})",
+					eport,
+					iaddr,
+					iport,
+					proto_itoa(proto)
+				);
 				continue;
 			} else {
 				timestamp as u64 - current_time
@@ -219,8 +224,16 @@ pub fn upnp_redirect(
 				lease_file_add(iaddr, eport, iport, proto, desc, timestamp);
 			}
 			if ret == 0 {
-				info!("action=UpdatePortMapping rhost={} eport={} iaddr={} iport={} proto={} desc={} timestamp={}",
-				rhost.unwrap_or(Ipv4Addr::UNSPECIFIED), eport, iaddr, iport, proto_itoa(proto), desc.unwrap_or_default(), timestamp);
+				info!(
+					"action=UpdatePortMapping rhost={} eport={} iaddr={} iport={} proto={} desc={} timestamp={}",
+					rhost.unwrap_or(Ipv4Addr::UNSPECIFIED),
+					eport,
+					iaddr,
+					iport,
+					proto_itoa(proto),
+					desc.unwrap_or_default(),
+					timestamp
+				);
 			}
 			return ret;
 		} else {
@@ -269,7 +282,7 @@ pub fn upnp_redirect_internal(
 ) -> i32 {
 	let v = global_option.get().unwrap();
 
-	if rt.disable_port_forwarding && !GETFLAG!(v.runtime_flags, IGNOREPRIVATEIPMASK) {
+	if !GETFLAG!(v.runtime_flags, IGNOREPRIVATEIPMASK) && rt.disable_port_forwarding {
 		return -1;
 	}
 	if rt.nat_impl.add_redirect_rule2(&v.ext_ifname, rhost, iaddr, eport, iport, proto, desc, timestamp) < 0 {
@@ -286,8 +299,16 @@ pub fn upnp_redirect_internal(
 			rt.nextruletoclean_timestamp = xx;
 		}
 	}
-	info!("action=AddPortMapping rhost={} eport={} iaddr={} iport={} proto={} desc={} timestamp={}",
-				rhost.unwrap_or(Ipv4Addr::UNSPECIFIED), eport, iaddr, iport, proto_itoa(proto), desc.unwrap_or_default(), timestamp);
+	info!(
+		"action=AddPortMapping rhost={} eport={} iaddr={} iport={} proto={} desc={} timestamp={}",
+		rhost.unwrap_or(Ipv4Addr::UNSPECIFIED),
+		eport,
+		iaddr,
+		iport,
+		proto_itoa(proto),
+		desc.unwrap_or_default(),
+		timestamp
+	);
 	upnp_event_var_change_notify(&mut rt.subscriber_list, EWanIPC);
 	return 0;
 }
@@ -319,11 +340,18 @@ pub fn _upnp_delete_redir(
 	#[cfg(feature = "events")]
 	upnp_event_var_change_notify(&mut rt.subscriber_list, EWanIPC);
 	if r == 0 {
-		info!("action={} eport={} proto={}",
-		       "DeletePortMapping", eport, proto_itoa(proto));
-	}else { 
-		info!("failed to remove port mapping eport={} proto={}",
-		       eport, proto_itoa(proto));
+		info!(
+			"action={} eport={} proto={}",
+			"DeletePortMapping",
+			eport,
+			proto_itoa(proto)
+		);
+	} else {
+		info!(
+			"failed to remove port mapping eport={} proto={}",
+			eport,
+			proto_itoa(proto)
+		);
 	}
 	r
 }

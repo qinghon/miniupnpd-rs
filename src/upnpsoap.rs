@@ -257,7 +257,7 @@ fn GetExternalIPAddress(h: &mut upnphttp, action: &str, ns: &str) {
 		} else {
 			let mut if_addr = Ipv4Addr::UNSPECIFIED;
 			if getifaddr(&op.ext_ifname, &mut if_addr, None) == 0 {
-				if addr_is_reserved(&if_addr) && !GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK) {
+				if !GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK) && addr_is_reserved(&if_addr) {
 					notice!(
 						"private/reserved address {} is not suitable for external IP",
 						ext_ip_addr
@@ -349,7 +349,10 @@ fn AddPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	};
 	let op = global_option.get().unwrap();
 	if GETFLAG!(op.runtime_flags, SECUREMODEMASK) && h.clientaddr != IpAddr::V4(iaddr) {
-		info!("{}: Client {} tried to redirect port to {}", action, h.clientaddr, int_ip);
+		info!(
+			"{}: Client {} tried to redirect port to {}",
+			action, h.clientaddr, int_ip
+		);
 		if cfg!(feature = "igd2") {
 			SoapError(h, 606, "Action not authorized");
 		} else {
@@ -538,7 +541,10 @@ fn AddAnyPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	let op = global_option.get().unwrap();
 
 	if GETFLAG!(op.runtime_flags, SECUREMODEMASK) && h.clientaddr != IpAddr::V4(iaddr) {
-		info!("{}: Client {} tried to redirect port to {}", action, h.clientaddr, int_ip);
+		info!(
+			"{}: Client {} tried to redirect port to {}",
+			action, h.clientaddr, int_ip
+		);
 		SoapError(h, 606, "Action not authorized");
 		return;
 	}
@@ -754,7 +760,7 @@ fn DeletePortMappingRange(h: &mut upnphttp, action: &str, ns: &str) {
 				proto,
 				if r < 0 { "failed" } else { "ok" }
 			);
-			// TODO: return a SOAP error code when there is at least 1 failure 
+			// TODO: return a SOAP error code when there is at least 1 failure
 		}
 	} else {
 		SoapError(h, 730, "PortMappingNotFound");
