@@ -138,7 +138,8 @@ pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> io::Resul
 
 		let leaseduration = if timestamp > 0 {
 			if timestamp as u64 <= current_time {
-				println!("Notice: Already expired lease in lease file");
+				notice!("already expired lease in lease file ({}=>{}:{} {})",
+				eport, iaddr, iport, proto_itoa(proto));
 				continue;
 			} else {
 				timestamp as u64 - current_time
