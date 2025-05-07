@@ -405,7 +405,7 @@ fn AddPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 
 	let rt = h.rt_options.as_mut().unwrap();
 	let proto = proto_atoi(protocol);
-	info!(
+	debug!(
 		"{}: ext port {} to {}:{} protocol {} for: {} leaseduration={} rhost={}",
 		action,
 		eport,
@@ -685,7 +685,7 @@ fn DeletePortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 		return;
 	}
 
-	info!("{}: external port: {}, protocol: {}", action, eport, protocol);
+	debug!("{}: external port: {}, protocol: {}", action, eport, protocol);
 	let op = global_option.get().unwrap();
 	let rt = h.rt_options.as_mut().unwrap();
 	let proto = proto_atoi(protocol);
@@ -747,13 +747,14 @@ fn DeletePortMappingRange(h: &mut upnphttp, action: &str, ns: &str) {
 	if let Some(port_list) = upnp_get_portmappings_in_range(&rt.nat_impl, startport, endport, proto) {
 		for port in port_list {
 			let r = upnp_delete_redirection(rt, port, proto);
-			info!(
+			debug!(
 				"{}: deleting external port: {}, protocol: {}: {}",
 				action,
 				port,
 				proto,
 				if r < 0 { "failed" } else { "ok" }
 			);
+			// TODO: return a SOAP error code when there is at least 1 failure 
 		}
 	} else {
 		SoapError(h, 730, "PortMappingNotFound");

@@ -191,7 +191,7 @@ pub fn upnp_redirect(
 		.get_redirect_rule(|x| x.dport == eport && x.proto == proto && x.daddr == iaddr && x.sport == iport)
 	{
 		if entry.daddr == iaddr && rhost.is_none() && entry.saddr.is_unspecified() {
-			info!(
+			debug!(
 				"updating existing port mapping {} {} (rhost '{}') => {}:{}",
 				eport,
 				proto,
@@ -217,6 +217,10 @@ pub fn upnp_redirect(
 				lease_file_remove(eport, proto);
 				lease_file_add(iaddr, eport, iport, proto, desc, timestamp);
 			}
+			if ret == 0 {
+				info!("action=UpdatePortMapping rhost={} eport={} iaddr={} iport={} proto={} desc={} timestamp={}",
+				rhost.unwrap_or(Ipv4Addr::UNSPECIFIED), eport, iaddr, iport, proto_itoa(proto), desc.unwrap_or_default(), timestamp);
+			}
 			return ret;
 		} else {
 			info!(
@@ -240,7 +244,7 @@ pub fn upnp_redirect(
 		} else {
 			0
 		} as u32;
-		info!(
+		debug!(
 			"redirecting port {} to {}:{} protocol {} for: {}",
 			eport,
 			proto,
@@ -281,6 +285,8 @@ pub fn upnp_redirect_internal(
 			rt.nextruletoclean_timestamp = xx;
 		}
 	}
+	info!("action=AddPortMapping rhost={} eport={} iaddr={} iport={} proto={} desc={} timestamp={}",
+				rhost.unwrap_or(Ipv4Addr::UNSPECIFIED), eport, iaddr, iport, proto_itoa(proto), desc.unwrap_or_default(), timestamp);
 	upnp_event_var_change_notify(&mut rt.subscriber_list, EWanIPC);
 	return 0;
 }
@@ -311,11 +317,17 @@ pub fn _upnp_delete_redir(
 	lease_file_remove(eport, proto);
 	#[cfg(feature = "events")]
 	upnp_event_var_change_notify(&mut rt.subscriber_list, EWanIPC);
+	if r == 0 {
+		info!("action={} eport={} proto={}",
+		       "DeletePortMapping", eport, proto_itoa(proto));
+	}else { 
+		info!("failed to remove port mapping eport={} proto={}",
+		       eport, proto_itoa(proto));
+	}
 	r
 }
 
 pub fn upnp_delete_redirection(rt: &mut RtOptions, eport: u16, protocol: u8) -> i32 {
-	info!("removing redirect rule port {} {}", eport, protocol);
 	_upnp_delete_redir(rt, eport, protocol)
 }
 pub fn upnp_get_portmapping_number_of_entries(nat: &nat_impl) -> i32 {
