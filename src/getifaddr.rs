@@ -1,21 +1,21 @@
 #![allow(dead_code)]
 
 use crate::warp::IfName;
-use libc::{AF_INET, AF_INET6, ifaddrs, sockaddr_in};
+use libc::{__errno_location, AF_INET, AF_INET6, ifaddrs, sockaddr_in};
 use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::{mem, ptr};
 
-pub(crate) const GETIFADDR_OK: i8 = 0;
-pub(crate) const GETIFADDR_BAD_ARGS: i8 = -1;
-pub(crate) const GETIFADDR_SOCKET_ERROR: i8 = -2;
-pub(crate) const GETIFADDR_DEVICE_NOT_CONFIGURED: i8 = -3;
-pub(crate) const GETIFADDR_IOCTL_ERROR: i8 = -4;
-pub(crate) const GETIFADDR_IF_DOWN: i8 = -5;
-pub(crate) const GETIFADDR_NO_ADDRESS: i8 = -6;
-pub(crate) const GETIFADDR_INET_NTOP_ERROR: i8 = -7;
-pub(crate) const GETIFADDR_GETIFADDRS_ERROR: i8 = -8;
+pub const GETIFADDR_OK: i8 = 0;
+pub const GETIFADDR_BAD_ARGS: i8 = -1;
+pub const GETIFADDR_SOCKET_ERROR: i8 = -2;
+pub const GETIFADDR_DEVICE_NOT_CONFIGURED: i8 = -3;
+pub const GETIFADDR_IOCTL_ERROR: i8 = -4;
+pub const GETIFADDR_IF_DOWN: i8 = -5;
+pub const GETIFADDR_NO_ADDRESS: i8 = -6;
+pub const GETIFADDR_INET_NTOP_ERROR: i8 = -7;
+pub const GETIFADDR_GETIFADDRS_ERROR: i8 = -8;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -27,13 +27,13 @@ pub struct ReservedAddr {
 pub fn getifaddr(ifname: &IfName, addr: &mut Ipv4Addr, mask: Option<&mut Ipv4Addr>) -> i32 {
 	use libc::{SIOCGIFFLAGS, SIOCGIFNETMASK, ifreq, ioctl, sockaddr, sockaddr_in, socket, strncpy};
 	if ifname.is_empty() {
-		return -1;
+		return GETIFADDR_BAD_ARGS as _;
 	}
 	unsafe {
 		let s = socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
 		if s < 0 {
 			error!("socket(PF_INET, SOCK_DGRAM): %m");
-			return -1;
+			return GETIFADDR_SOCKET_ERROR as _;
 		}
 		let ret = 'free: {
 			let mut ifr: ifreq = mem::zeroed();
@@ -41,17 +41,29 @@ pub fn getifaddr(ifname: &IfName, addr: &mut Ipv4Addr, mask: Option<&mut Ipv4Add
 			strncpy(ifr.ifr_name.as_mut_ptr(), ifname.as_ptr(), libc::IFNAMSIZ - 1);
 
 			if ioctl(s, SIOCGIFFLAGS as _, (&mut ifr) as *mut _, size_of::<ifreq>()) < 0 {
+				let errno = *__errno_location();
+				let r = match errno {
+					libc::ENXIO | libc::ENODEV => GETIFADDR_DEVICE_NOT_CONFIGURED,
+					_ => GETIFADDR_IOCTL_ERROR,
+				};
+
 				debug!("ioctl(s, SIOCGIFFLAGS, ...): %m");
-				break 'free -1;
+				break 'free r as _;
 			}
 			if ifr.ifr_ifru.ifru_flags as i32 & libc::IFF_UP == 0 {
 				debug!("network interface {} is down", ifname);
-				break 'free -1;
+				break 'free GETIFADDR_IF_DOWN as _;
 			}
 			strncpy(ifr.ifr_name.as_mut_ptr(), ifname.as_ptr(), libc::IFNAMSIZ - 1);
 			if ioctl(s, libc::SIOCGIFADDR as _, &mut ifr as *mut _, size_of::<libc::ifreq>()) < 0 {
+				let errno = *__errno_location();
+				let r = if errno == libc::EADDRNOTAVAIL {
+					GETIFADDR_NO_ADDRESS
+				} else {
+					GETIFADDR_IOCTL_ERROR
+				};
 				error!("ioctl(s, SIOCGIFADDR, ...): %m");
-				break 'free -1;
+				break 'free r as _;
 			}
 			let ifaddr = &*((&ifr.ifr_ifru.ifru_addr) as *const sockaddr as *const sockaddr_in);
 			*addr = Ipv4Addr::from(ifaddr.sin_addr.s_addr.to_ne_bytes());
@@ -59,13 +71,13 @@ pub fn getifaddr(ifname: &IfName, addr: &mut Ipv4Addr, mask: Option<&mut Ipv4Add
 				strncpy(ifr.ifr_name.as_mut_ptr(), ifname.as_ptr(), libc::IFNAMSIZ - 1);
 				if ioctl(s, SIOCGIFNETMASK as _, &mut ifr as *mut _, size_of::<ifreq>()) < 0 {
 					error!("ioctl(s, SIOCGIFNETMASK, ...): %m");
-					break 'free -1;
+					break 'free GETIFADDR_IOCTL_ERROR as _;
 				}
 				let ifmask = &*((&ifr.ifr_ifru.ifru_netmask) as *const sockaddr as *const sockaddr_in);
 				*mask = Ipv4Addr::from(ifmask.sin_addr.s_addr.to_ne_bytes());
 			}
 
-			0
+			GETIFADDR_OK as _
 		};
 		libc::close(s);
 		ret
@@ -173,10 +185,12 @@ pub fn getifaddr(ifname: &IfName, addr: &mut Ipv4Addr, mask: Option<&mut Ipv4Add
 				};
 				*emask = imask;
 			}
-			return 0;
+			return GETIFADDR_OK as _;
 		}
+	} else {
+		return GETIFADDR_GETIFADDRS_ERROR as _;
 	}
-	-1
+	GETIFADDR_NO_ADDRESS as _
 }
 #[cfg(feature = "pcp")]
 pub fn getifaddr_in6(ifname: &IfName, ipv6: bool) -> Option<Ipv6Addr> {

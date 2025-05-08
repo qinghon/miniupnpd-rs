@@ -1,4 +1,4 @@
-use crate::getifaddr::{addr_is_reserved, getifaddr};
+use crate::getifaddr::{GETIFADDR_NO_ADDRESS, GETIFADDR_OK, addr_is_reserved, getifaddr};
 #[cfg(feature = "pcp_sadscp")]
 use crate::pcplearndscp::{dscp_value, read_learn_dscp_line};
 use crate::upnpevents::{subscriber, upnp_event_notify};
@@ -163,12 +163,40 @@ pub struct RtOptions {
 
 pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str, _runtime_flag: u32) -> i32 {
 	if let Ok(ifname) = IfName::from_str(lan) {
-		if getifaddr(&ifname, &mut lan_addr.addr, Some(&mut lan_addr.mask)) <= 0 {
-			lan_addr.index = ifname.index();
-			lan_addr.ifname = ifname;
-		} else {
+		lan_addr.ifname = ifname;
+		let r = getifaddr(&ifname, &mut lan_addr.addr, Some(&mut lan_addr.mask));
+
+		#[cfg(feature = "ipv6")]
+		if r == GETIFADDR_NO_ADDRESS as _ {
 			eprintln!("interface \"{}\" has no IPv4 address", lan);
 			notice!("interface \"{}\" has no IPv4 address", lan);
+			lan_addr.mask = u32::MAX.into();
+		} else if r != GETIFADDR_OK as _ {
+			error!("error getting address for interface {}\n", lan);
+			return -1;
+		}
+		lan_addr.index = ifname.index();
+		#[cfg(not(feature = "ipv6"))]
+		match r as _ {
+			GETIFADDR_NO_ADDRESS => {
+				eprintln!("interface \"{}\" has no address", lan);
+				return -1;
+			}
+			GETIFADDR_DEVICE_NOT_CONFIGURED => {
+				eprintln!("interface \"{}\" is not configured", lan);
+				return -1;
+			}
+			GETIFADDR_IF_DOWN => {
+				eprintln!("interface \"{}\" is down", lan);
+				return -1;
+			}
+			GETIFADDR_OK => {
+				lan_addr.index = ifname.index();
+			}
+			_ => {
+				eprintln!("error getting address for interface {}", str);
+				return -1;
+			}
 		}
 	} else {
 		if let Ok(ipn) = ipnet::Ipv4Net::from_str(lan) {
