@@ -992,7 +992,9 @@ impl nftable {
 			} else if n == 0 {
 				break 'exit 0;
 			}
-			unsafe { *libc::__errno_location() = 0; }
+			unsafe {
+				*libc::__errno_location() = 0;
+			}
 			let ret = unsafe {
 				mnl_cb_run(
 					buf.as_ptr() as *const c_void,
@@ -1042,6 +1044,12 @@ fn expr_add_cmp(r: &mut NftnlRule, sreg: c_int, op: c_int, data: &[u8]) {
 
 	r.add_expr(e);
 }
+fn expr_add_counter(r: &mut NftnlRule) {
+	if let Some(e) = NftnlExpr::new(c"counter") {
+		r.add_expr(e);
+	}
+}
+
 fn expr_add_meta(r: &mut NftnlRule, meta_key: c_int, dreg: c_int) {
 	let e = NftnlExpr::new(c"meta");
 	if e.is_none() {
@@ -1310,6 +1318,9 @@ pub(super) fn rule_set_dnat(
 		}
 		_ => {}
 	}
+
+	// Counter
+	expr_add_counter(&mut rule);
 
 	// Add NAT expression
 	expr_add_nat(&mut rule, NFT_NAT_DNAT, NFPROTO_IPV4, ihost, iport.to_be());
