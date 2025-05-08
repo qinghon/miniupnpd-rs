@@ -992,7 +992,7 @@ impl nftable {
 			} else if n == 0 {
 				break 'exit 0;
 			}
-
+			unsafe { *libc::__errno_location() = 0; }
 			let ret = unsafe {
 				mnl_cb_run(
 					buf.as_ptr() as *const c_void,
@@ -1005,7 +1005,7 @@ impl nftable {
 			};
 
 			if ret <= MNL_CB_ERROR {
-				error!("mnl_cb_run returned {}", ret);
+				error!("mnl_cb_run returned {}: {}", ret, io::Error::last_os_error());
 				return -1;
 			}
 
@@ -1621,6 +1621,7 @@ impl nftable {
 				} else if n == 0 {
 					break;
 				}
+				*libc::__errno_location() = 0;
 				let ret = mnl_cb_run(buf.as_mut_ptr() as _, n as _, 0, self.mnl_portid, None, ptr::null_mut());
 				if ret <= -1 {
 					error!(
