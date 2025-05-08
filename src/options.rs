@@ -2,7 +2,7 @@ use crate::getifaddr::{GETIFADDR_NO_ADDRESS, GETIFADDR_OK, addr_is_reserved, get
 #[cfg(feature = "pcp_sadscp")]
 use crate::pcplearndscp::{dscp_value, read_learn_dscp_line};
 use crate::upnpevents::{subscriber, upnp_event_notify};
-use crate::upnpglobalvars::{ALLOWPRIVATEIPV4MASK, lan_addr_s};
+use crate::upnpglobalvars::*;
 pub use crate::upnppermissions::{read_permission_line, upnpperm};
 use crate::uuid::UUID;
 use crate::warp::{IfName, StackBufferReader};
@@ -255,11 +255,10 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 			Some(false) => {}
 			None => return false,
 		},
-		"ext_perform_stun" => match parse_bool(value) {
-			Some(v) => {
-				op.ext_perform_stun = v;
-			}
-			None => return false,
+		"ext_perform_stun" => match value {
+			"yes" => op.ext_perform_stun = true,
+			"allow-filtered" => SETFLAG!(op.runtime_flags, PERFORMSTUNMASK | ALLOWFILTEREDSTUNMASK),
+			_ => return false,
 		},
 		"ext_stun_host" => {
 			op.ext_stun_host = Some(value.into());

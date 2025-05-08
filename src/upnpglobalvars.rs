@@ -47,6 +47,7 @@ pub const PCP_ALLOWTHIRDPARTYMASK: u32 = 0x0400;
 pub const FORCEIGDDESCV1MASK: u32 = 0x0800;
 pub const PERFORMSTUNMASK: u32 = 0x1000;
 pub const ALLOWPRIVATEIPV4MASK: u32 = 0x2000;
+pub const ALLOWFILTEREDSTUNMASK: u32 = 0x4000;
 
 #[macro_export]
 macro_rules! SETFLAG {
