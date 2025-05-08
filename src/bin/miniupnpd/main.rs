@@ -403,12 +403,10 @@ pub fn update_ext_ip_addr_from_stun(
 			);
 			warn!("Check configuration of firewall on local machine and also on upstream router");
 		}
-		warn!("Port forwarding is now disabled");
 	} else {
 		info!("STUN: ... done");
 	}
 	rt.use_ext_ip_addr = Some(ext_addr.into());
-	*port_forward = restrictive_nat != 0;
 	0
 }
 
