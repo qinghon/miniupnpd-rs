@@ -257,7 +257,7 @@ fn GetExternalIPAddress(h: &mut upnphttp, action: &str, ns: &str) {
 		} else {
 			let mut if_addr = Ipv4Addr::UNSPECIFIED;
 			if getifaddr(&op.ext_ifname, &mut if_addr, None) == 0 {
-				if !GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK) && addr_is_reserved(&if_addr) {
+				if !GETFLAG!(op.runtime_flags, ALLOWPRIVATEIPV4MASK) && addr_is_reserved(&if_addr) {
 					notice!(
 						"private/reserved address {} is not suitable for external IP",
 						ext_ip_addr

@@ -2,7 +2,7 @@ use crate::getifaddr::{GETIFADDR_NO_ADDRESS, GETIFADDR_OK, addr_is_reserved, get
 #[cfg(feature = "pcp_sadscp")]
 use crate::pcplearndscp::{dscp_value, read_learn_dscp_line};
 use crate::upnpevents::{subscriber, upnp_event_notify};
-use crate::upnpglobalvars::{IGNOREPRIVATEIPMASK, lan_addr_s};
+use crate::upnpglobalvars::{ALLOWPRIVATEIPV4MASK, lan_addr_s};
 pub use crate::upnppermissions::{read_permission_line, upnpperm};
 use crate::uuid::UUID;
 use crate::warp::{IfName, StackBufferReader};
@@ -250,8 +250,8 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 			}
 			Err(_) => return false,
 		},
-		"ignore_private_ip_check" => match parse_bool(value) {
-			Some(true) => SETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK),
+		"ext_allow_private_ipv4" => match parse_bool(value) {
+			Some(true) => SETFLAG!(op.runtime_flags, ALLOWPRIVATEIPV4MASK),
 			Some(false) => {}
 			None => return false,
 		},

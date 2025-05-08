@@ -435,7 +435,7 @@ fn update_disable_port_forwarding(op: &Options, rt: &mut RtOptions) {
 			let reserved = addr_is_reserved(&addr);
 
 			if !rt.disable_port_forwarding && reserved {
-				if GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK) {
+				if GETFLAG!(op.runtime_flags, ALLOWPRIVATEIPV4MASK) {
 					warn!(
 						"IGNORED : Reserved / private IP address {} on ext interface {}",
 						addr, op.ext_ifname
@@ -855,7 +855,7 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 	}
 	if let Some(IpAddr::V4(ext_ip)) = &rt.use_ext_ip_addr {
 		if addr_is_reserved(ext_ip) {
-			if GETFLAG!(option.runtime_flags, IGNOREPRIVATEIPMASK) {
+			if GETFLAG!(option.runtime_flags, ALLOWPRIVATEIPV4MASK) {
 				warn!(
 					"IGNORED : option ext_ip contains reserved / private address {}, not public routable",
 					ext_ip

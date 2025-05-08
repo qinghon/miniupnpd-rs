@@ -920,7 +920,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 						let ext_if_name = &op.ext_ifname;
 						let mut addr = Ipv4Addr::UNSPECIFIED;
 						if getifaddr(ext_if_name, &mut addr, None) == 0 {
-							if !GETFLAG!(op.runtime_flags, IGNOREPRIVATEIPMASK) && addr_is_reserved(&addr) {
+							if !GETFLAG!(op.runtime_flags, ALLOWPRIVATEIPV4MASK) && addr_is_reserved(&addr) {
 								result.push_str("0.0.0.0");
 							} else {
 								result.write_fmt(format_args!("{}", addr)).unwrap();

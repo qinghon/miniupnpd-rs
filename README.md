@@ -1,5 +1,5 @@
 
-# miniupnpd rewrite from C code(7fc5b4d2a5e62eb9152441715922b9083c19ed12)
+# miniupnpd rewrite from C code(4e18a4c35cf9f43377338587cc82a024bafb6d4b)
 
 > [!WARNING] WIP Waring
 > 
