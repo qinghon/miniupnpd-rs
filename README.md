@@ -1,5 +1,5 @@
 
-# miniupnpd rewrite from C code(f31bf29a)
+# miniupnpd rewrite from C code(80b4aa38)
 
 > [!WARNING] WIP Waring
 > 
@@ -92,6 +92,7 @@ if real need , tell me I can roll back
 - `ENABLE_LEASEFILE`: force enabled
 - `ENABLE_L3F_SERVICE`: force enabled
 - `USE_TIME_AS_BOOTID`: force enabled
+- `ENABLE_NFT_RULE_COUNTER`: force enabled
 
 
 ### Not yet supported
