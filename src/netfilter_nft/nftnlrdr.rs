@@ -302,7 +302,7 @@ impl Backend for nftable {
 			self.nft_nat_family as _,
 			&self.nft_nat_table,
 			&self.nft_prerouting_chain,
-			&ifname.as_cstr(),
+			ifname,
 			proto,
 			rhost,
 			eport,
@@ -338,7 +338,7 @@ impl Backend for nftable {
 			&self.nft_table,
 			&self.nft_forward_chain,
 			self.nft_nat_family as u8,
-			&ifname.as_cstr(),
+			&ifname,
 			proto,
 			rhost,
 			iaddr,
@@ -477,7 +477,7 @@ impl Backend for nftable {
 			&self.nft_table,
 			&self.nft_forward_chain,
 			self.nft_ipv6_family as u8,
-			&ifname.as_cstr(),
+			&ifname,
 			_entry.proto,
 			raddr,
 			&_entry.iaddr,
@@ -525,8 +525,7 @@ impl Backend for nftable {
 			_timestamp,
 			rule.desc.as_str().split_ascii_whitespace().nth(2).unwrap_or_default()
 		);
-		let mut ifname = [0u8; libc::IF_NAMESIZE];
-		unsafe { libc::if_indextoname(rule.ingress_ifidx, ifname.as_mut_ptr() as _) };
+		let ifname = IfName::from_index(rule.ingress_ifidx);
 
 		let rhost = if rule.saddr6 == Ipv6Addr::UNSPECIFIED {
 			None
@@ -538,7 +537,7 @@ impl Backend for nftable {
 			&self.nft_table,
 			&self.nft_forward_chain,
 			self.nft_ipv6_family as u8,
-			&unsafe { CStr::from_ptr(ifname.as_ptr() as _) },
+			&ifname.unwrap_or_default(),
 			rule.proto,
 			rhost,
 			&rule.daddr6,

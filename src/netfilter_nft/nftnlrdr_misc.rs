@@ -12,7 +12,7 @@
 mod nftnl {
 	include!(concat!(env!("OUT_DIR"), "/nftnl.rs"));
 }
-use crate::Rc;
+use crate::{IfName, Rc};
 use libc::nlmsghdr;
 use nftnl::*;
 mod mnl {
@@ -1223,7 +1223,7 @@ pub(super) fn rule_set_dnat(
 	family: u8,
 	table: &CStr,
 	chain: &CStr,
-	ifname: &CStr,
+	ifname: &IfName,
 	proto: u8,
 	rhost: Option<Ipv4Addr>,
 	eport: u16,
@@ -1255,6 +1255,7 @@ pub(super) fn rule_set_dnat(
 	}
 
 	// Set interface if provided
+	#[cfg(feature = "rule_use_ifname")]
 	if !ifname.is_empty() {
 		let if_idx = unsafe { libc::if_nametoindex(ifname.as_ptr()) } as u32;
 		expr_add_meta(&mut rule, NFT_META_IIF, NFT_REG_1);
@@ -1322,7 +1323,7 @@ pub(super) fn rule_set_filter(
 	table: &CStr,
 	chain: &CStr,
 	family: u8,
-	ifname: &CStr,
+	ifname: &IfName,
 	proto: u8,
 	rhost: Option<Ipv4Addr>,
 	iaddr: Ipv4Addr,
@@ -1374,7 +1375,7 @@ pub(super) fn rule_set_filter6(
 	table: &CStr,
 	chain: &CStr,
 	family: u8,
-	ifname: &CStr,
+	ifname: &IfName,
 	proto: u8,
 	rhost6: Option<&Ipv6Addr>,
 	iaddr6: &Ipv6Addr,
@@ -1425,7 +1426,7 @@ pub(super) fn rule_set_filter_common(
 	chain: &CStr,
 	rule: &mut NftnlRule,
 	family: u8,
-	ifname: &CStr,
+	ifname: &IfName,
 	proto: u8,
 	_eport: u16, // ignored parameter
 	iport: u16,  // destination port
@@ -1453,6 +1454,7 @@ pub(super) fn rule_set_filter_common(
 	}
 
 	// Set interface if provided
+	#[cfg(feature = "rule_use_ifname")]
 	if !ifname.is_empty() {
 		let if_idx = unsafe { libc::if_nametoindex(ifname.as_ptr()) } as u32;
 		expr_add_meta(rule, NFT_META_IIF, NFT_REG_1);

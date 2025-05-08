@@ -414,7 +414,7 @@ pub fn update_ext_ip_addr_from_stun(
 	if !GETFLAG!(v.runtime_flags, ALLOWFILTEREDSTUNMASK) {
 		*port_forward = restrictive_nat != 0;
 	}
-	
+
 	0
 }
 

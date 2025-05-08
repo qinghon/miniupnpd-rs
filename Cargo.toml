@@ -27,7 +27,7 @@ regex-lite = {version = "0.1", optional = true}
 openssl-sys = {git = "https://github.com/qinghon/rust-openssl.git", optional = true , features = ["bindgen"]}
 
 [features]
-default = ["igd2", "events", "ipv6", "strict"]
+default = ["igd2", "events", "ipv6", "strict", "rule_use_ifname"]
 pcp = []
 pcp_peer = ["pcp"]
 igd2 = []
@@ -45,6 +45,7 @@ events = []
 randomurl= []
 pcp_sadscp = ["pcp"]
 pcp_flowp = ["pcp"]
+rule_use_ifname = []
 
 
 [lints.rust]

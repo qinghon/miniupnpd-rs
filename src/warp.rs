@@ -211,6 +211,14 @@ impl IfName {
 	pub fn index(&self) -> u32 {
 		unsafe { libc::if_nametoindex(self.as_ptr()) }
 	}
+	pub fn from_index(i: u32) -> Option<Self> {
+		let mut ifname = Self::default();
+		if unsafe { libc::if_indextoname(i, ifname.0.as_mut_ptr() as _) }.is_null() {
+			None
+		} else {
+			Some(ifname)
+		}
+	}
 }
 
 pub fn pselect(
