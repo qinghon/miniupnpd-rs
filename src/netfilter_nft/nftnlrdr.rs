@@ -83,6 +83,8 @@ impl<'a> Iterator for NftableIter<'a> {
 		self.entry = FilterEntry::default();
 		self.entry.index = index + 1;
 		self.entry.proto = rule.proto;
+		self.entry.packets = rule.packets;
+		self.entry.bytes = rule.bytes;
 
 		let f = self.f;
 		f(&self.backend, &mut self.entry, &rule);
