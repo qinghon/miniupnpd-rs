@@ -31,7 +31,7 @@ use std::ffi::{CStr, c_char, c_void};
 use std::fmt::Debug;
 use std::mem::{offset_of, size_of};
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::ptr::slice_from_raw_parts;
+use std::ptr::{slice_from_raw_parts, NonNull};
 use std::{io, mem, ptr};
 
 #[repr(C)]
@@ -222,7 +222,7 @@ pub(super) struct table_cb_data<'a> {
 	pub(super) head: &'a mut Vec<rule_t>,
 }
 #[repr(transparent)]
-pub(super) struct NftnlRule(*mut nftnl_rule);
+pub(super) struct NftnlRule(NonNull<nftnl_rule>);
 
 impl NftnlRule {
 	pub(super) fn new() -> Option<Self> {
@@ -230,73 +230,75 @@ impl NftnlRule {
 		if rule.is_null() {
 			error!("nftnl_rule_alloc() Failed");
 		}
-		Some(Self(rule))
+		Some(Self(unsafe { NonNull::new_unchecked(rule) }))
 	}
-	#[inline]
-	pub(super) fn is_null(&self) -> bool {
-		self.0.is_null()
-	}
+
 	#[inline]
 	pub(super) fn set_u32(&mut self, attr: c_uint, value: u32) {
-		unsafe { nftnl_rule_set_u32(self.0, attr as _, value) }
+		unsafe { nftnl_rule_set_u32(self.0.as_ptr(), attr as _, value) }
 	}
 	#[inline]
 	pub(super) fn set_u64(&mut self, attr: c_uint, value: u64) {
-		unsafe { nftnl_rule_set_u64(self.0, attr as _, value) }
+		unsafe { nftnl_rule_set_u64(self.0.as_ptr(), attr as _, value) }
 	}
 	#[inline]
 	pub(super) fn set_str(&mut self, attr: c_uint, value: &CStr) -> i32 {
-		unsafe { nftnl_rule_set_str(self.0, attr as _, value.as_ptr()) }
+		unsafe { nftnl_rule_set_str(self.0.as_ptr(), attr as _, value.as_ptr()) }
 	}
 	#[inline]
 	pub(super) fn set_data(&mut self, attr: c_uint, data: &[u8]) -> i32 {
-		unsafe { nftnl_rule_set_data(self.0, attr as _, data.as_ptr() as *const c_void, data.len() as u32) }
+		unsafe { nftnl_rule_set_data(self.0.as_ptr(), attr as _, data.as_ptr() as *const c_void, data.len() as u32) }
 	}
 	#[inline]
 	pub(super) fn is_set(&self, attr: c_uint) -> bool {
-		unsafe { nftnl_rule_is_set(self.0, attr as _) }
+		unsafe { nftnl_rule_is_set(self.0.as_ptr(), attr as _) }
 	}
 	#[inline]
 	pub(super) fn get_u32(&self, attr: c_uint) -> u32 {
-		unsafe { nftnl_rule_get_u32(self.0, attr as _) }
+		unsafe { nftnl_rule_get_u32(self.0.as_ptr(), attr as _) }
 	}
 	#[inline]
 	pub(super) fn get_u64(&self, attr: c_uint) -> u64 {
-		unsafe { nftnl_rule_get_u64(self.0, attr as _) }
+		unsafe { nftnl_rule_get_u64(self.0.as_ptr(), attr as _) }
 	}
 	#[inline]
 	pub(super) fn get_str(&self, attr: c_uint) -> *const c_char {
-		unsafe { nftnl_rule_get_str(self.0, attr as _) }
+		unsafe { nftnl_rule_get_str(self.0.as_ptr(), attr as _) }
 	}
 	#[inline]
 	pub(super) fn get_data(&self, attr: c_uint) -> &[u8] {
 		let mut data_len = 0u32;
-		let data = unsafe { nftnl_rule_get_data(self.0, attr as _, &mut data_len) };
+		let data = unsafe { nftnl_rule_get_data(self.0.as_ptr(), attr as _, &mut data_len) };
 		unsafe { &*slice_from_raw_parts(data as *const u8, data_len as usize) }
 	}
 	#[inline]
 	pub(super) fn add_expr(&mut self, expr: NftnlExpr) {
 		unsafe {
-			nftnl_rule_add_expr(self.0, expr.0);
+			nftnl_rule_add_expr(self.0.as_ptr(), expr.0);
 			mem::forget(expr);
 		}
 	}
 	pub(super) fn nlmsg_parse(&mut self, nlmsg: *const nlmsghdr) -> i32 {
-		unsafe { nftnl_rule_nlmsg_parse(nlmsg, self.0) }
+		unsafe { nftnl_rule_nlmsg_parse(nlmsg, self.0.as_ptr()) }
 	}
 	pub(super) fn nlmsg_build_payload(&mut self, nlmsg: *mut nlmsghdr) {
-		unsafe { nftnl_rule_nlmsg_build_payload(nlmsg, self.0) }
+		unsafe { nftnl_rule_nlmsg_build_payload(nlmsg, self.0.as_ptr()) }
 	}
 	#[inline]
-	pub(super) fn iter(&self) -> NftnlExprIter {
-		unsafe { nftnl_expr_iter_create(self.0).into() }
+	pub(super) fn iter(&self) -> Option<NftnlExprIter> {
+		let i =  unsafe { nftnl_expr_iter_create(self.0.as_ptr())};
+		if i.is_null() {
+			None
+		}else {
+			Some(unsafe { NonNull::new_unchecked(i).into() })
+		}
 	}
 }
 
 impl Debug for NftnlRule {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let mut buf = [0u8; 4096];
-		let len = unsafe { nftnl_rule_snprintf(buf.as_mut_ptr() as _, 4096, self.0, NFTNL_OUTPUT_DEFAULT, 0) };
+		let len = unsafe { nftnl_rule_snprintf(buf.as_mut_ptr() as _, 4096, self.0.as_ptr(), NFTNL_OUTPUT_DEFAULT, 0) };
 		if len > 0 {
 			f.write_str(unsafe { str::from_utf8_unchecked(&buf[0..len as usize]) })
 		} else {
@@ -306,33 +308,27 @@ impl Debug for NftnlRule {
 }
 impl Drop for NftnlRule {
 	fn drop(&mut self) {
-		unsafe { nftnl_rule_free(self.0) }
+		unsafe { nftnl_rule_free(self.0.as_ptr()) }
 	}
 }
 #[repr(transparent)]
-pub(super) struct NftnlExprIter(*mut nftnl_expr_iter);
-impl From<*mut nftnl_expr_iter> for NftnlExprIter {
+pub(super) struct NftnlExprIter(pub(super) NonNull<nftnl_expr_iter>);
+impl From<NonNull<nftnl_expr_iter>> for NftnlExprIter {
 	#[inline]
-	fn from(iter: *mut nftnl_expr_iter) -> Self {
+	fn from(iter: NonNull<nftnl_expr_iter>) -> Self {
 		Self(iter)
 	}
 }
 impl Drop for NftnlExprIter {
 	fn drop(&mut self) {
-		if self.0.is_null() {
-			return;
-		}
-		unsafe { nftnl_expr_iter_destroy(self.0) }
+		unsafe { nftnl_expr_iter_destroy(self.0.as_ptr()) }
 	}
 }
 impl Iterator for NftnlExprIter {
 	type Item = NftnlExpr;
 	#[inline]
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.0.is_null() {
-			return None;
-		}
-		let i = unsafe { nftnl_expr_iter_next(self.0) };
+		let i = unsafe { nftnl_expr_iter_next(self.0.as_ptr()) };
 		if i.is_null() { None } else { Some(i.into()) }
 	}
 }
@@ -835,8 +831,10 @@ extern "C" fn table_cb(nlh: *const nlmsghdr, data: *mut libc::c_void) -> i32 {
 	r.handle = rule.get_u64(NFTNL_RULE_HANDLE);
 	r.type_0 = cb_data.type_0;
 
-	for itr in rule.iter() {
-		rule_expr_cb(&itr, &mut r);
+	if let Some(iter) = rule.iter() {
+		for itr in iter {
+			rule_expr_cb(&itr, &mut r);
+		}
 	}
 
 	debug!(" cb rule {:?}", r);
