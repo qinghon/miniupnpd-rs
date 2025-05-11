@@ -495,9 +495,9 @@ fn set_os_version() {
 	let mut utsname: libc::utsname = unsafe { std::mem::zeroed() };
 	if unsafe { libc::uname(&mut utsname) < 0 } {
 		error!("uname(): %m");
-		let _ = os_version.set("unknown".to_owned());
+		let _ = os_version.set("unknown".into());
 	} else {
-		let _ = os_version.set(unsafe { CStr::from_ptr(utsname.release.as_ptr()) }.to_string_lossy().to_string());
+		let _ = os_version.set(unsafe { CStr::from_ptr(utsname.release.as_ptr()) }.to_string_lossy().into());
 	}
 	let _ = MINIUPNPD_SERVER_STRING.set(format!(
 		"{}/{} UPnP/1.1 MiniUPnPd/{}",
@@ -836,9 +836,9 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 	let _ = serialnumber.set(option.serial.as_str().into());
 	let _ = modelnumber.set(option.model_number.as_str().into());
 	let _ = if let Some(persurl) = &option.presentation_url {
-		presentationurl.set(persurl.to_string())
+		presentationurl.set(persurl.as_str().into())
 	} else {
-		presentationurl.set(format!("http://{}/", option.listening_ip[0].addr))
+		presentationurl.set(format!("http://{}/", option.listening_ip[0].addr).into())
 	};
 
 	if option.ext_ifname.is_empty() || option.listening_ip.is_empty() {
@@ -907,6 +907,10 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 	if setup_signal_handle() != 0 {
 		return 1;
 	}
+	
+	#[cfg(feature = "randomurl")]
+	let _ = random_url.set(format!("{:08x}", random::<u64>()).into());
+	
 	if rt.nat_impl.init_redirect() < 0 {
 		error!("Failed to init redirection engine. EXITING");
 		return 1;

@@ -41,7 +41,7 @@ enum XMLEltData {
 	/// value type for leaf node
 	str(&'static str),
 	uuid(&'static OnceCell<UUID>),
-	dyn_str(&'static OnceCell<String>),
+	dyn_str(&'static OnceCell<Box<str>>),
 }
 
 struct serviceDesc {

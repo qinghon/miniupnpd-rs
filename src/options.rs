@@ -32,7 +32,7 @@ pub struct Options {
 	pub ext_ifname6: IfName,
 	pub ext_ip: Option<Ipv4Addr>,
 	pub ext_perform_stun: bool,
-	pub ext_stun_host: Option<Rc<str>>,
+	pub ext_stun_host: Option<Box<str>>,
 	pub ext_stun_port: u16,
 	pub listening_ip: Vec<lan_addr_s>,
 	pub ipv6_listening_ip: Option<Ipv6Addr>,
@@ -48,29 +48,29 @@ pub struct Options {
 
 	pub bitrate_up: Option<usize>,
 	pub bitrate_down: Option<usize>,
-	pub presentation_url: Option<Rc<str>>,
+	pub presentation_url: Option<Box<str>>,
 	pub notify_interval: u32,
 	pub system_uptime: bool,
 	pub packet_log: bool,
 	pub uuid: UUID,
-	pub serial: Rc<str>,
-	pub model_number: Rc<str>,
+	pub serial: Box<str>,
+	pub model_number: Box<str>,
 	pub clean_ruleset_threshold: u32,
 	pub clean_ruleset_interval: u32,
-	pub upnp_table_name: Rc<str>,
-	pub upnp_nat_table_name: Rc<str>,
-	pub upnp_forward_chain: Rc<str>,
-	pub upnp_nat_chain: Rc<str>,
-	pub upnp_nat_postrouting_chain: Rc<str>,
+	pub upnp_table_name: Box<str>,
+	pub upnp_nat_table_name: Box<str>,
+	pub upnp_forward_chain: Box<str>,
+	pub upnp_nat_chain: Box<str>,
+	pub upnp_nat_postrouting_chain: Box<str>,
 	pub upnp_nftables_family_split: bool,
 	pub enable_natpmp: bool,
 	pub enable_pcp_pmp: bool,
 	pub min_lifetime: usize,
 	pub max_lifetime: usize,
-	pub pcp_allow_thirdparty: Rc<str>,
+	pub pcp_allow_thirdparty: Box<str>,
 	pub enable_upnp: bool,
-	pub lease_file: Rc<str>,
-	pub lease_file6: Rc<str>,
+	pub lease_file: Box<str>,
+	pub lease_file6: Box<str>,
 	pub force_igd_desc_v1: bool,
 	pub minissdpdsocket: Option<Rc<str>>,
 	pub secure_mode: bool,
@@ -226,9 +226,6 @@ pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str, _runtime_flag: u32) ->
 }
 
 fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bool {
-	if value.is_empty() {
-		return false;
-	};
 
 	match key {
 		"ext_ifname" => {

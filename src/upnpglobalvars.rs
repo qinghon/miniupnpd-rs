@@ -72,12 +72,12 @@ pub static uuidvalue_igd: OnceCell<UUID> = OnceCell::new();
 pub static uuidvalue_wan: OnceCell<UUID> = OnceCell::new();
 pub static uuidvalue_wcd: OnceCell<UUID> = OnceCell::new();
 
-pub static modelnumber: OnceCell<String> = OnceCell::new();
-pub static serialnumber: OnceCell<String> = OnceCell::new();
-pub static presentationurl: OnceCell<String> = OnceCell::new();
+pub static modelnumber: OnceCell<Box<str>> = OnceCell::new();
+pub static serialnumber: OnceCell<Box<str>> = OnceCell::new();
+pub static presentationurl: OnceCell<Box<str>> = OnceCell::new();
 
 #[cfg(feature = "randomurl")]
-pub static random_url: OnceCell<String> = OnceCell::new();
+pub static random_url: OnceCell<Box<str>> = OnceCell::new();
 
 pub static ipv6_addr_for_http_with_brackets: OnceCell<Ipv6Addr> = OnceCell::new();
 
@@ -112,6 +112,6 @@ pub static upnp_bootid: AtomicU32 = AtomicU32::new(1); /* BOOTID.UPNP.ORG */
 /// SCPD = Service Control Protocol Description
 pub const upnp_configid: u32 = 1337; /* CONFIGID.UPNP.ORG */
 
-pub static os_version: OnceCell<String> = OnceCell::new();
+pub static os_version: OnceCell<Box<str>> = OnceCell::new();
 
 pub static global_option: OnceCell<options::Options> = OnceCell::new();
