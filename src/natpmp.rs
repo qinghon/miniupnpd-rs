@@ -142,7 +142,7 @@ pub fn ProcessIncomingNATPMPPacket(
 
 		// udp and tcp
 		let iport = u16::from_be_bytes([req[4], req[5]]);
-		let eport = u16::from_be_bytes([req[6], req[7]]);
+		let mut eport = u16::from_be_bytes([req[6], req[7]]);
 		let lifetime = u32::from_be_bytes([req[8], req[9], req[10], req[11]]);
 		let proto = if req[1] == 1 { UDP } else { TCP };
 		let proto_str = proto_itoa(proto);
@@ -155,14 +155,24 @@ pub fn ProcessIncomingNATPMPPacket(
 			lifetime
 		);
 		if lifetime == 0 {
+			// A client MAY also send an explicit packet to request deletion of a
+			// mapping that is no longer needed. A client requests explicit
+			// deletion of a mapping by sending a message to the NAT gateway
+			// requesting the mapping, with the Requested Lifetime in Seconds set to
+			// zero. The Suggested External Port MUST be set to zero by the client
+			// on sending, and MUST be ignored by the gateway on reception.
+			rt.nat_impl.reflush_rule_cache();
 			while let Some(entry) = rt.nat_impl.get_redirect_rule(|x| {
-				x.daddr.as_octets() == senderaddr.ip().as_octets()
+				x.iaddr.as_octets() == senderaddr.ip().as_octets()
 					&& x.desc.as_ref().map(|x| x.as_str()).unwrap_or_default().starts_with("NAT-PMP")
 			}) {
-				if entry.dport == 0 || ((iport == entry.dport) && (proto == entry.proto)) {
-					let r = _upnp_delete_redir(rt, eport, proto);
+				if iport == 0 || ((iport == entry.iport) && (proto == entry.proto)) {
+					let r = _upnp_delete_redir(rt, entry.eport, proto);
 					if r < 0 {
-						error!("Failed to remove NAT-PMP mapping eport {}, protocol {}", eport, proto);
+						error!(
+							"Failed to remove NAT-PMP mapping eport {}, protocol {}",
+							entry.eport, proto
+						);
 						//  Not Authorized/Refused
 						resp[3] = 2;
 					} else {
@@ -173,10 +183,12 @@ pub fn ProcessIncomingNATPMPPacket(
 		} else if iport == 0 {
 			resp[3] = 2; /* Not Authorized/Refused */
 		} else {
-			let mut eport = iport;
+			if eport == 0 {
+				eport = iport;
+			}
 			let mut eport_first = 0;
 			let mut any_eport_allowed = false;
-			#[cfg(feature = "portinuse")]
+
 			let op = global_option.get().unwrap();
 			while resp[3] == 0 {
 				if eport_first == 0 {
@@ -226,11 +238,11 @@ pub fn ProcessIncomingNATPMPPacket(
 					}
 				}
 
-				if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.sport == eport && x.proto == proto) {
-					if entry.daddr.octets() == senderaddr.ip().octets() && iport == entry.dport {
+				if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.eport == eport && x.proto == proto) {
+					if entry.iaddr.octets() == senderaddr.ip().octets() && iport == entry.iport {
 						info!(
 							"port {} {} already redirected to {}:{}, replacing",
-							eport, proto_str, entry.daddr, entry.dport
+							eport, proto_str, entry.iaddr, entry.iport
 						);
 						if _upnp_delete_redir(rt, eport, proto) < 0 {
 							error!("failed to remove port mapping");
@@ -246,17 +258,17 @@ pub fn ProcessIncomingNATPMPPacket(
 				}
 
 				// do the redirection
-				let timestamp = upnp_time().as_secs() + lifetime as u64;
 				let desc = format!("NAT-PMP {} {}", eport, proto_str);
 				if upnp_redirect(
+					op,
 					rt,
-					None,
+					Ipv4Addr::UNSPECIFIED,
 					*senderaddr.ip(),
 					eport,
 					iport,
 					proto,
 					Some(desc.as_str()),
-					timestamp as _,
+					lifetime,
 				) < 0
 				{
 					error!(

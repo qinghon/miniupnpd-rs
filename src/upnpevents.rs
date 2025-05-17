@@ -20,7 +20,7 @@ pub enum subscriber_service_enum {
 	EL3F = 3,
 	#[cfg(feature = "ipv6")]
 	E6FC = 4,
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	EDP = 5,
 }
 use socket2::Socket;
@@ -78,7 +78,7 @@ fn newSubscriber(eventurl: &str, callback: &str) -> Option<subscriber> {
 		L3F_EVENTURL => EL3F,
 		#[cfg(feature = "ipv6")]
 		WANIP6FC_EVENTURL => E6FC,
-		#[cfg(feature = "_dp_service")]
+		#[cfg(feature = "dp_service")]
 		DP_EVENTURL => EDP,
 		_ => return None,
 	};
@@ -252,9 +252,9 @@ fn upnp_event_prepare(rt: &mut RtOptions, index: usize) {
 		EL3F => getVarsL3F(rt),
 		#[cfg(feature = "ipv6")]
 		E6FC => getVars6FC(rt),
-		#[cfg(feature = "_dp_service")]
+		#[cfg(feature = "dp_service")]
 		EDP => getVarsDP(rt),
-		#[cfg(not(any(feature = "ipv6", feature = "_dp_service")))]
+		#[cfg(not(any(feature = "ipv6", feature = "dp_service")))]
 		_ => {
 			rt.notify_list[index].state = EError;
 			return;

@@ -1,6 +1,9 @@
+#![allow(unused_assignments)]
+
 use bindgen::RustTarget;
 use std::collections::HashMap;
 use std::env;
+use std::error::Error;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -153,63 +156,130 @@ fn probe_nftables() {
 
 	bindings.write_to_file(out_path.join("mnl.rs")).expect("Couldn't write libmnl bindings!");
 }
-
-fn probe_cap_ng() {
-	let libcap_ng = pkg_config::probe_library("libcap-ng");
-	if libcap_ng.is_err() {
-		return;
-	}
-	let libcap_ng = libcap_ng.unwrap();
-	for p in libcap_ng.link_paths {
-		println!("cargo:rustc-link-search=native={}", p.display());
-	}
-	println!("cargo::rustc-link-lib=cap-ng");
-
-	const CAPNG_FREFIX: &str = "^(capng|CAPNG|CAP)_.+";
+#[cfg(target_os = "linux")]
+fn probe_libmnl() -> Result<(), pkg_config::Error> {
+	// from mnl-sys
+	let libmnl = pkg_config::probe_library("libmnl")?;
 	let bindings = bindgen::Builder::default()
-		.header_contents("wrapper.h", "#include <cap-ng.h>")
-		.clang_args(libcap_ng.include_paths.iter().map(|x| format!("-I{}", x.to_str().unwrap())))
+		.header_contents("wrapper.h", "#include <libmnl/libmnl.h>")
+		.clang_args(libmnl.include_paths.iter().map(|x| format!("-I{}", x.to_str().unwrap())))
 		.use_core()
 		.prepend_enum_name(false)
-		.allowlist_function(CAPNG_FREFIX)
-		.allowlist_var(CAPNG_FREFIX)
-		.allowlist_type(CAPNG_FREFIX)
+		.allowlist_function("^mnl.+$")
+		.allowlist_var("^MNL.+$")
+		.allowlist_type("^mnl_.+$")
+		.blocklist_type("^_.+$")
+		.blocklist_type("FILE")
+		.blocklist_type("_IO_FILE")
+		.blocklist_type("(__)?(pid|socklen)_t")
+		.blocklist_type("iovec")
+		.blocklist_type("nlmsghdr")
+		.blocklist_type("nlattr")
+		.raw_line("use libc::{self, nlmsghdr, nlattr, pid_t, socklen_t, FILE};")
 		.ctypes_prefix("libc")
 		.rust_target(RustTarget::nightly())
 		.generate()
 		.expect("Couldn't generate bindings");
 
 	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-	bindings.write_to_file(out_path.join("cap-ng.rs")).unwrap();
+	bindings.write_to_file(out_path.join("mnl.rs")).expect("Couldn't write libmnl bindings!");
+	Ok(())
+}
+#[cfg(target_os = "linux")]
+fn probe_libnetfilter_conntrack(lib_map: &mut HashMap<&'static str, bool>) {
+	let _libnetfilter_conntrack = pkg_config::probe_library("libnetfilter_conntrack");
+	if _libnetfilter_conntrack.is_err() {
+		println!("cargo:rustc-cfg=conntrack=\"proc\"");
+		return;
+	}
+	if probe_libmnl().is_err() {
+		println!("cargo:rustc-cfg=conntrack=\"proc\"");
+		return;
+	}
+	if probe_libnfnetlink(lib_map).is_err() {
+		println!("cargo:rustc-cfg=conntrack=\"proc\"");
+		return;
+	}
+	// let libnetfilter_conntrack = libnetfilter_conntrack.unwrap();
+
+	let headers = [
+		"libnetfilter_conntrack/libnetfilter_conntrack.h",
+		"libnetfilter_conntrack/libnetfilter_conntrack_dccp.h",
+		"libnetfilter_conntrack/libnetfilter_conntrack_icmp.h",
+		"libnetfilter_conntrack/libnetfilter_conntrack_ipv4.h",
+		"libnetfilter_conntrack/libnetfilter_conntrack_ipv6.h",
+		"libnetfilter_conntrack/libnetfilter_conntrack_sctp.h",
+		"libnetfilter_conntrack/libnetfilter_conntrack_tcp.h",
+		"libnetfilter_conntrack/libnetfilter_conntrack_udp.h",
+		"libnetfilter_conntrack/linux_nf_conntrack_common.h",
+		"libnetfilter_conntrack/linux_nfnetlink_conntrack.h",
+	];
+	let ret = probe_lib_generic(
+		"libnetfilter_conntrack",
+		&headers,
+		"netfilter_conntrack",
+		"libnetfilter_conntrack",
+		Some(&["nlmsghdr"]),
+	);
+	if ret.is_err() {
+		println!("cargo:rustc-cfg=conntrack=\"proc\"");
+		lib_map.insert("netfilter_conntrack", false);
+		return;
+	}
+	lib_map.insert("netfilter_conntrack", true);
+	println!("cargo:rustc-cfg=conntrack=\"nfct\"");
+}
+#[cfg(target_os = "linux")]
+fn probe_libnfnetlink(lib_map: &mut HashMap<&'static str, bool>) -> Result<(), Box<dyn Error>> {
+	// let libnfnetlink = pkg_config::probe_library("libnfnetlink")?;
+	if lib_map.contains_key("libnfnetlink") {
+		return Ok(());
+	}
+	let headers = [
+		"libnfnetlink/libnfnetlink.h",
+		"libnfnetlink/linux_nfnetlink.h",
+		"libnfnetlink/linux_nfnetlink_compat.h",
+	];
+
+	let ret = probe_lib_generic(
+		"libnfnetlink",
+		&headers,
+		"nfnetlink",
+		"libnfnetlink",
+		Some(&["nlmsghdr", "iovec"]),
+	);
+	if ret.is_err() {
+		lib_map.insert("libnfnetlink", false);
+		return ret;
+	}
+	lib_map.insert("libnfnetlink", true);
+	Ok(())
+}
+
+fn probe_linux_capability(_lib_map: &mut HashMap<&'static str, bool>) -> Result<(), Box<dyn Error>> {
+	probe_lib_generic("libcap-ng", &["linux/capability.h"], "", "linux_capability", None)
+}
+
+fn probe_cap_ng(lib_map: &mut HashMap<&'static str, bool>) {
+	if probe_lib_generic("libcap-ng", &["cap-ng.h"], "cap-ng", "cap-ng", None).is_err() {
+		lib_map.insert("libcap-ng", false);
+		return;
+	}
+
+	if probe_linux_capability(lib_map).is_err() {
+		lib_map.insert("libcap-ng", false);
+		return;
+	}
+
+	lib_map.insert("libcap-ng", true);
 	println!("cargo:rustc-cfg=cap_lib=\"cap_ng\"");
 }
-fn probe_libcap() {
-	let libcap = pkg_config::probe_library("libcap");
-	if libcap.is_err() {
+fn probe_libcap(lib_map: &mut HashMap<&'static str, bool>) {
+	if probe_lib_generic("libcap", &["sys/capability.h"], "cap", "capability", None).is_err() {
+		lib_map.insert("libcap", false);
 		return;
 	}
-	let libcap = libcap.unwrap();
-	for p in libcap.link_paths {
-		println!("cargo:rustc-link-search=native={}", p.display());
-	}
-	println!("cargo::rustc-link-lib=cap");
-
-	const CAPNG_FREFIX: &str = "^(cap|CAP)_.+";
-	let bindings = bindgen::Builder::default()
-		.header_contents("wrapper.h", "#include <sys/capability.h>")
-		.clang_args(libcap.include_paths.iter().map(|x| format!("-I{}", x.to_str().unwrap())))
-		.use_core()
-		.prepend_enum_name(false)
-		.allowlist_function(CAPNG_FREFIX)
-		.allowlist_var(CAPNG_FREFIX)
-		.allowlist_type(CAPNG_FREFIX)
-		.ctypes_prefix("libc")
-		.rust_target(RustTarget::nightly())
-		.generate()
-		.expect("Couldn't generate bindings");
-
-	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-	bindings.write_to_file(out_path.join("capability.rs")).unwrap();
+	lib_map.insert("libcap", true);
 	println!("cargo:rustc-cfg=cap_lib=\"cap\"");
 }
 /// native uuid impl is safe, but extern lib small, so~, sometimes we need
@@ -222,36 +292,63 @@ fn probe_libuuid() {
 	}
 }
 #[cfg(target_os = "linux")]
-fn probe_systemd() {
+fn probe_systemd(lib_map: &mut HashMap<&str, bool>) {
 	if env::var("USE_SYSTEMD") != Ok("1".to_string()) {
 		return;
 	}
-	let libsystemd = pkg_config::probe_library("libsystemd");
-	if libsystemd.is_err() {
+	if probe_lib_generic("libsystemd", &["systemd/sd-daemon.h"], "systemd", "libsystemd", None).is_err() {
+		lib_map.insert("libsystemd", false);
 		return;
 	}
-	let libsystemd = libsystemd.unwrap();
-	for p in libsystemd.link_paths {
+	lib_map.insert("libsystemd", true);
+	println!("cargo:rustc-cfg=use_systemd");
+}
+
+fn probe_lib_generic(
+	name: &str,
+	headers: &[&'static str],
+	link_name: &str,
+	dst_file: &str,
+	ignore_struct: Option<&[&str]>,
+) -> Result<(), Box<dyn Error>> {
+	let lib = pkg_config::probe_library(name)?;
+
+	for p in lib.link_paths {
 		println!("cargo:rustc-link-search=native={}", p.display());
 	}
-	println!("cargo::rustc-link-lib=systemd");
-	const LIBSYSTEMD_FREFIX: &str = "^(SD|sd)_.+";
-	let bindings = bindgen::Builder::default()
-		.header_contents("wrapper.h", "#include <systemd/sd-daemon.h>")
-		.clang_args(libsystemd.include_paths.iter().map(|x| format!("-I{}", x.to_str().unwrap())))
+	if !link_name.is_empty() {
+		println!("cargo::rustc-link-lib={link_name}");
+	}
+	let allow_files = lib
+		.include_paths
+		.iter()
+		.flat_map(|x| headers.iter().map(|header| x.clone().join(header)))
+		.map(|x| x.to_string_lossy().into_owned())
+		.collect::<Vec<String>>();
+
+	let header_content = headers.iter().map(|x| format!("#include <{}>", x)).collect::<Vec<String>>().join("\n");
+
+	let mut bindings = bindgen::Builder::default()
+		.header_contents("wrapper.h", &header_content)
+		.clang_args(lib.include_paths.iter().map(|x| format!("-I{}", x.to_str().unwrap())))
 		.use_core()
 		.prepend_enum_name(false)
-		.allowlist_function(LIBSYSTEMD_FREFIX)
-		.allowlist_var(LIBSYSTEMD_FREFIX)
-		.allowlist_type(LIBSYSTEMD_FREFIX)
 		.ctypes_prefix("libc")
-		.rust_target(RustTarget::nightly())
-		.generate()
-		.expect("Couldn't generate bindings");
+		.rust_edition(bindgen::RustEdition::Edition2024)
+		.rust_target(RustTarget::nightly());
+	if let Some(ignore_struct) = ignore_struct {
+		for block_type in ignore_struct {
+			bindings = bindings.blocklist_type(block_type);
+		}
+	}
 
+	for allow_file in allow_files {
+		bindings = bindings.allowlist_file(allow_file);
+	}
+	let bindings = bindings.generate()?;
 	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-	bindings.write_to_file(out_path.join("libsystemd.rs")).unwrap();
-	println!("cargo:rustc-cfg=use_systemd");
+	bindings.write_to_file(out_path.join(format!("{dst_file}.rs")))?;
+	Ok(())
 }
 
 fn load_env() {
@@ -287,6 +384,15 @@ fn load_env() {
 	}
 }
 
+#[cfg(feature = "https")]
+fn fix_openssl() {
+	use openssl_sys;
+	if openssl_sys::OPENSSL_VERSION_MAJOR >= 3 {
+		println!("cargo:rustc-cfg=openssl3");
+	}
+	
+}
+
 fn main() {
 	load_env();
 	// for e in env::vars() {
@@ -319,10 +425,12 @@ fn main() {
 	println!("cargo:rerun-if-env-changed=USE_GETIFADDRS");
 	println!("cargo:rerun-if-env-changed=USE_SYSTEMD");
 
+	let mut lib_map: HashMap<&str, bool> = HashMap::new();
+
 	if env::var("HAS_LIBCAP_NG") == Ok("1".into()) {
-		probe_cap_ng();
+		probe_cap_ng(&mut lib_map);
 	} else if env::var("HAS_LIBCAP") == Ok("1".into()) {
-		probe_libcap();
+		probe_libcap(&mut lib_map);
 	} else {
 		println!("cargo:rustc-cfg=cap_lib=\"none\"");
 	}
@@ -332,22 +440,29 @@ fn main() {
 	}
 
 	match fw.as_str() {
+		#[cfg(target_os = "linux")]
 		"iptables" => {
 			println!("cargo::rustc-link-lib=ip4tc");
 			println!("cargo::rustc-link-lib=ip6tc");
 			probe_iptables();
+			probe_libnetfilter_conntrack(&mut lib_map);
 		}
+		#[cfg(target_os = "linux")]
 		"nftables" => {
 			println!("cargo::rustc-link-lib=nftnl");
 			println!("cargo::rustc-link-lib=mnl");
 			probe_nftables();
+			probe_libnetfilter_conntrack(&mut lib_map);
 		}
 		_ => {}
 	}
 	#[cfg(target_os = "linux")]
 	build_if_addr();
 	#[cfg(target_os = "linux")]
-	probe_systemd();
+	probe_systemd(&mut lib_map);
+
+	#[cfg(feature = "https")]
+	fix_openssl();
 
 	probe_libuuid();
 	let features = env::var("CARGO_FEATURE_EVENTS").map(|_| "events").unwrap_or_default().to_string()

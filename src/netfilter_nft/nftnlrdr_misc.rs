@@ -12,26 +12,23 @@
 mod nftnl {
 	include!(concat!(env!("OUT_DIR"), "/nftnl.rs"));
 }
-use crate::{IfName, Rc};
-use libc::nlmsghdr;
-use nftnl::*;
-mod mnl {
-	include!(concat!(env!("OUT_DIR"), "/mnl.rs"));
-}
 use super::nftnlrdr::nftable;
+use crate::linux::os_impl::page_size;
+use crate::{IfName, MapEntry, PinholeEntry, Rc};
 use libc::NFPROTO_IPV4;
 use libc::NFT_REG_VERDICT;
+use libc::nlmsghdr;
 use libc::{NF_ACCEPT, NFNL_MSG_BATCH_BEGIN, NFNL_MSG_BATCH_END, NLM_F_REQUEST};
 use libc::{NFT_PAYLOAD_TRANSPORT_HEADER, c_int, c_uint};
-pub(super) use mnl::mnl_socket;
-use mnl::*;
+use nftnl::*;
+// pub(super) use mnl::mnl_socket;
 use std::cmp::max;
 use std::ffi::CString;
 use std::ffi::{CStr, c_char, c_void};
 use std::fmt::Debug;
 use std::mem::{offset_of, size_of};
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::ptr::{slice_from_raw_parts, NonNull};
+use std::ptr::{NonNull, slice_from_raw_parts};
 use std::{io, mem, ptr};
 
 #[repr(C)]
@@ -145,6 +142,9 @@ pub(super) enum rule_chain_type {
 	RULE_CHAIN_PEER,
 	RULE_CHAIN_REDIRECT,
 }
+use crate::linux::netfilter;
+use crate::linux::netfilter::MnlSocket;
+use crate::linux::netfilter::mnl::*;
 use crate::netfilter_nft::nftnlrdr_misc::nftnl::nftnl_output_type::NFTNL_OUTPUT_DEFAULT;
 use crate::upnputils::upnp_time;
 use crate::warp::{Ip4Addr, copy_from_slice};
@@ -161,23 +161,22 @@ pub(super) struct rule_t {
 	pub(super) handle: u64,
 	pub(super) type_0: rule_type,
 	pub(super) nat_type: u32,
-	pub(super) filter_action: u32,
 	pub(super) family: u32,
 	pub(super) ingress_ifidx: u32,
 	pub(super) egress_ifidx: u32,
+
 	pub(super) saddr: Ipv4Addr,
-	pub(super) saddr6: Ipv6Addr,
-	pub(super) sport: u16,
 	pub(super) daddr: Ipv4Addr,
-	pub(super) daddr6: Ipv6Addr,
-	pub(super) dport: u16,
 	pub(super) nat_addr: Ipv4Addr,
+
+	pub(super) saddr6: Ipv6Addr,
+	pub(super) daddr6: Ipv6Addr,
+
+	pub(super) sport: u16,
+	pub(super) dport: u16,
 	pub(super) nat_port: u16,
 	pub(super) proto: u8,
-	pub(super) reg1_type: rule_reg_type,
-	pub(super) reg2_type: rule_reg_type,
-	pub(super) reg1_val: u32,
-	pub(super) reg2_val: u32,
+
 	pub(super) packets: u64,
 	pub(super) bytes: u64,
 	pub(super) desc: Rc<str>,
@@ -190,7 +189,6 @@ impl Default for rule_t {
 			handle: 0,
 			type_0: Default::default(),
 			nat_type: 0,
-			filter_action: 0,
 			family: 0,
 			ingress_ifidx: 0,
 			egress_ifidx: 0,
@@ -203,15 +201,22 @@ impl Default for rule_t {
 			nat_addr: Ipv4Addr::UNSPECIFIED,
 			nat_port: 0,
 			proto: 0,
-			reg1_type: Default::default(),
-			reg2_type: Default::default(),
-			reg1_val: 0,
-			reg2_val: 0,
+			// reg1_type: Default::default(),
+			// reg2_type: Default::default(),
+			// reg1_val: 0,
+			// reg2_val: 0,
 			packets: 0,
 			bytes: 0,
 			desc: Rc::from(""),
 		}
 	}
+}
+#[derive(Clone, Debug, Default)]
+struct parse_ctx {
+	pub(super) reg1_type: rule_reg_type,
+	pub(super) reg2_type: rule_reg_type,
+	pub(super) reg1_val: u32,
+	pub(super) reg2_val: u32,
 }
 
 #[repr(C)]
@@ -247,7 +252,14 @@ impl NftnlRule {
 	}
 	#[inline]
 	pub(super) fn set_data(&mut self, attr: c_uint, data: &[u8]) -> i32 {
-		unsafe { nftnl_rule_set_data(self.0.as_ptr(), attr as _, data.as_ptr() as *const c_void, data.len() as u32) }
+		unsafe {
+			nftnl_rule_set_data(
+				self.0.as_ptr(),
+				attr as _,
+				data.as_ptr() as *const c_void,
+				data.len() as u32,
+			)
+		}
 	}
 	#[inline]
 	pub(super) fn is_set(&self, attr: c_uint) -> bool {
@@ -286,10 +298,10 @@ impl NftnlRule {
 	}
 	#[inline]
 	pub(super) fn iter(&self) -> Option<NftnlExprIter> {
-		let i =  unsafe { nftnl_expr_iter_create(self.0.as_ptr())};
+		let i = unsafe { nftnl_expr_iter_create(self.0.as_ptr()) };
 		if i.is_null() {
 			None
-		}else {
+		} else {
 			Some(unsafe { NonNull::new_unchecked(i).into() })
 		}
 	}
@@ -408,117 +420,88 @@ impl Debug for NftnlExpr {
 // 	}
 // }
 
-pub fn page_size() -> usize {
-	static mut PAGE_SIZE: usize = 0;
-	unsafe {
-		if PAGE_SIZE == 0 {
-			let size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
-			PAGE_SIZE = size;
-		}
-	}
-	unsafe { PAGE_SIZE }
-}
-
 impl nftable {
 	pub(super) fn nft_mnl_connect(&mut self) -> i32 {
-		unsafe {
-			let mnl_sock = mnl_socket_open(libc::NETLINK_NETFILTER);
-			if mnl_sock.is_null() {
-				error!("mnl_socket_open() FAILED: %m");
-				return -1;
-			}
-			if mnl_socket_bind(mnl_sock, 0, MNL_SOCKET_AUTOPID as _) < 0 {
-				error!("mnl_socket_bind() FAILED: %m");
-				return -1;
-			}
-			self.mnl_portid = mnl_socket_get_portid(mnl_sock);
-			self.mnl_sock = mnl_sock;
-			info!("mnl_socket bound, port_id={}", self.mnl_portid);
+		let mnl_sock = MnlSocket::open(libc::NETLINK_NETFILTER);
+		if mnl_sock.is_none() {
+			error!("mnl_socket_open() FAILED: %m");
+			return -1;
 		}
+		let mnl_sock = mnl_sock.unwrap();
+		if mnl_sock.bind(0, netfilter::mnl::MNL_SOCKET_AUTOPID as _) < 0 {
+			error!("mnl_socket_bind() FAILED: %m");
+			return -1;
+		}
+		self.mnl_portid = mnl_sock.get_portid();
+		self.mnl_sock = Some(mnl_sock);
+		info!("mnl_socket bound, port_id={}", self.mnl_portid);
+
 		0
 	}
 	pub(super) fn nft_mnl_dissconnect(&mut self) {
-		if !self.mnl_sock.is_null() {
-			unsafe { mnl_socket_close(self.mnl_sock) };
-			self.mnl_sock = ptr::null_mut();
-		}
+		let _ = self.mnl_sock.take();
 	}
 }
 
-fn get_reg_type_ptr(r: &mut rule_t, dreg: u32) -> Option<&mut rule_reg_type> {
+fn set_reg(ctx: &mut parse_ctx, dreg: u32, reg_type: rule_reg_type, val: u32) {
 	match dreg as _ {
-		NFT_REG_1 => Some(&mut r.reg1_type),
-		NFT_REG_2 => Some(&mut r.reg2_type),
-		_ => None,
+		NFT_REG_1 => {
+			ctx.reg1_type = reg_type;
+			if reg_type == RULE_REG_IMM_VAL {
+				ctx.reg1_val = val;
+			}
+		}
+		NFT_REG_2 => {
+			ctx.reg2_type = reg_type;
+			if reg_type == RULE_REG_IMM_VAL {
+				ctx.reg2_val = val;
+			}
+		}
+		NFT_REG_VERDICT => {}
+		_ => {
+			error!("unknown reg:{}", dreg);
+		}
 	}
 }
-fn get_reg_val_ptr(r: &mut rule_t, dreg: u32) -> Option<&mut u32> {
-	match dreg as _ {
-		NFT_REG_1 => Some(&mut r.reg1_val),
-		NFT_REG_2 => Some(&mut r.reg2_val),
-		_ => None,
-	}
-}
-fn set_reg(r: &mut rule_t, dreg: u32, reg_type: rule_reg_type, val: u32) {
-	if dreg == NFT_REG_1 as _ {
-		r.reg1_type = reg_type;
-		if reg_type == RULE_REG_IMM_VAL {
-			r.reg1_val = val;
-		}
-	} else if dreg == NFT_REG_2 as _ {
-		r.reg2_type = reg_type;
-		if reg_type == RULE_REG_IMM_VAL {
-			r.reg2_val = val;
-		}
-	} else if dreg == NFT_REG_VERDICT as _ {
-		if r.type_0 == RULE_FILTER {
-			r.filter_action = val;
-		}
-	} else {
-		error!("unknown reg:{}", dreg);
-	}
-}
-fn parse_rule_immediate(e: &NftnlExpr, r: &mut rule_t) {
+fn parse_rule_immediate(e: &NftnlExpr, _r: &mut rule_t, ctx: &mut parse_ctx) {
 	let dreg = e.get_u32(NFTNL_EXPR_IMM_DREG as _);
 	let mut reg_val = 0;
 	if dreg == NFT_REG_VERDICT as _ {
 		reg_val = e.get_u32(NFTNL_EXPR_IMM_VERDICT as _);
-	} else {
-		if let Some(p) = e.get(NFTNL_EXPR_IMM_DATA as _) {
-			match p.len() {
-				4 => copy_from_slice(&mut reg_val, p),
-				2 => reg_val = u16::from_ne_bytes([p[0], p[1]]) as u32,
-				_ => {
-					error!("nftnl_expr_get() reg_len={}", p.len());
-					return;
-				}
+	} else if let Some(p) = e.get(NFTNL_EXPR_IMM_DATA as _) {
+		match p.len() {
+			4 => copy_from_slice(&mut reg_val, p),
+			2 => reg_val = u16::from_ne_bytes([p[0], p[1]]) as u32,
+			_ => {
+				error!("nftnl_expr_get() reg_len={}", p.len());
+				return;
 			}
-		} else {
-			error!("nftnl_expr_get() failed for reg:{}", dreg);
-			return;
 		}
+	} else {
+		error!("nftnl_expr_get() failed for reg:{}", dreg);
+		return;
 	}
-	set_reg(r, dreg, RULE_REG_IMM_VAL, reg_val);
+	set_reg(ctx, dreg, RULE_REG_IMM_VAL, reg_val);
 }
 fn parse_rule_counter(e: &NftnlExpr, r: &mut rule_t) {
 	r.type_0 = RULE_COUNTER;
 	r.bytes = e.get_u64(NFTNL_EXPR_CTR_BYTES as _);
 	r.packets = e.get_u64(NFTNL_EXPR_CTR_PACKETS as _);
 }
-fn parse_rule_meta(e: &NftnlExpr, r: &mut rule_t) {
+fn parse_rule_meta(e: &NftnlExpr, _r: &mut rule_t, ctx: &mut parse_ctx) {
 	let key = e.get_u32(NFTNL_EXPR_META_KEY as _) as _;
 	let dreg = e.get_u32(NFTNL_EXPR_META_DREG as _);
 
 	/* ToDo: body of both cases are identical - bug? */
 	match key {
-		NFT_META_IIF => set_reg(r, dreg, RULE_REG_IIF, 0),
-		NFT_META_OIF => set_reg(r, dreg, RULE_REG_IIF, 0),
+		NFT_META_IIF => set_reg(ctx, dreg, RULE_REG_IIF, 0),
+		NFT_META_OIF => set_reg(ctx, dreg, RULE_REG_IIF, 0),
 		_ => {
 			debug!("parse_rule_meta :Not support key {}", key);
 		}
 	}
 }
-fn parse_rule_nat(e: &NftnlExpr, r: &mut rule_t) {
+fn parse_rule_nat(e: &NftnlExpr, r: &mut rule_t, ctx: &mut parse_ctx) {
 	// Set rule type to NAT
 	r.type_0 = RULE_NAT;
 
@@ -538,42 +521,43 @@ fn parse_rule_nat(e: &NftnlExpr, r: &mut rule_t) {
 	}
 
 	// Get and process protocol (port) value
-	let mut proto_min_val = 0u16;
-	if let Some(reg_val) = get_reg_val_ptr(r, proto_min_reg) {
-		proto_min_val = u16::from_be(*reg_val as u16);
-		debug!(
-			"parse_rule_nat: proto_min_reg {} : {:08x} => {}",
-			proto_min_reg, reg_val, proto_min_val
-		);
-	} else {
-		error!("parse_rule_nat: invalid proto_min_reg {}", proto_min_reg);
-	}
+	let proto_min_val = match proto_min_reg as _ {
+		NFT_REG_1 => u16::from_be(ctx.reg1_val as u16),
+		NFT_REG_2 => u16::from_be(ctx.reg2_val as u16),
+		_ => {
+			error!("parse_rule_nat: invalid proto_min_reg {}", proto_min_reg);
+			0
+		}
+	};
+	debug!("parse_rule_nat: proto_min_reg {}: => {}", proto_min_reg, proto_min_val);
 
 	// Get and process address value
-	if let Some(reg_val) = get_reg_val_ptr(r, addr_min_reg).as_ref() {
-		// Set destination address and port
-		r.nat_addr = Ipv4Addr::from((**reg_val).to_ne_bytes());
-		r.nat_port = proto_min_val;
-	} else {
-		error!("parse_rule_nat: invalid addr_min_reg {}", addr_min_reg);
-	}
+	let addr = match addr_min_reg as _ {
+		NFT_REG_1 => ctx.reg1_val,
+		NFT_REG_2 => ctx.reg2_val,
+		_ => {
+			error!("parse_rule_nat: invalid addr_min_reg {}", addr_min_reg);
+			0
+		}
+	};
+	r.nat_addr = Ip4Addr::from(addr).into();
+	r.nat_port = proto_min_val;
 
 	// Reset registers
-	set_reg(r, NFT_REG_1 as _, RULE_REG_NONE, 0);
-	set_reg(r, NFT_REG_2 as _, RULE_REG_NONE, 0);
+	set_reg(ctx, NFT_REG_1 as _, RULE_REG_NONE, 0);
+	set_reg(ctx, NFT_REG_2 as _, RULE_REG_NONE, 0);
 }
-fn parse_rule_payload(e: &NftnlExpr, r: &mut rule_t) {
+fn parse_rule_payload(e: &NftnlExpr, _r: &mut rule_t, ctx: &mut parse_ctx) {
 	let dreg = e.get_u32(NFTNL_EXPR_PAYLOAD_DREG as _);
 	let base = e.get_u32(NFTNL_EXPR_PAYLOAD_BASE as _) as _;
 	let offset = e.get_u32(NFTNL_EXPR_PAYLOAD_OFFSET as _);
 	let len = e.get_u32(NFTNL_EXPR_PAYLOAD_LEN as _);
 
-	let reg_type = get_reg_type_ptr(r, dreg);
-	if reg_type.is_none() {
+	if !matches!(dreg as _, NFT_REG_1 | NFT_REG_2) {
 		error!("parse_rule_payload: unsupported dreg {}", dreg);
 		return;
 	}
-	let reg_type = reg_type.unwrap();
+	let mut reg_type = RULE_REG_NONE;
 
 	match base {
 		NFT_PAYLOAD_NETWORK_HEADER => {
@@ -589,28 +573,28 @@ fn parse_rule_payload(e: &NftnlExpr, r: &mut rule_t) {
 
 			match (offset as _, len) {
 				(IPHDR_DADDR_OFF, 4) => {
-					*reg_type = RULE_REG_IP_DEST_ADDR;
+					reg_type = RULE_REG_IP_DEST_ADDR;
 				}
 				(IPHDR_SADDR_OFF, 4) => {
-					*reg_type = RULE_REG_IP_SRC_ADDR;
+					reg_type = RULE_REG_IP_SRC_ADDR;
 				}
 				(IPHDR_SADDR_OFF, 8) => {
-					*reg_type = RULE_REG_IP_SD_ADDR;
+					reg_type = RULE_REG_IP_SD_ADDR;
 				}
 				(IPHDR_PROTO_OFF, 1) => {
-					*reg_type = RULE_REG_IP_PROTO;
+					reg_type = RULE_REG_IP_PROTO;
 				}
 				(IPV6HDR_NEXTHDR_OFF, 1) => {
-					*reg_type = RULE_REG_IP6_PROTO;
+					reg_type = RULE_REG_IP6_PROTO;
 				}
 				(IPV6HDR_DADDR_OFF, 16) => {
-					*reg_type = RULE_REG_IP6_DEST_ADDR;
+					reg_type = RULE_REG_IP6_DEST_ADDR;
 				}
 				(IPV6HDR_SADDR_OFF, 16) => {
-					*reg_type = RULE_REG_IP6_SRC_ADDR;
+					reg_type = RULE_REG_IP6_SRC_ADDR;
 				}
 				(IPV6HDR_SADDR_OFF, 32) => {
-					*reg_type = RULE_REG_IP6_SD_ADDR;
+					reg_type = RULE_REG_IP6_SD_ADDR;
 				}
 				_ => {
 					error!(
@@ -627,13 +611,13 @@ fn parse_rule_payload(e: &NftnlExpr, r: &mut rule_t) {
 
 			match (offset, len) {
 				(o, l) if o == TCPHDR_DEST_OFF && l == 2 => {
-					*reg_type = RULE_REG_TCP_DPORT;
+					reg_type = RULE_REG_TCP_DPORT;
 				}
 				(o, l) if o == TCPHDR_SOURCE_OFF && l == 2 => {
-					*reg_type = RULE_REG_TCP_SPORT;
+					reg_type = RULE_REG_TCP_SPORT;
 				}
 				(o, l) if o == TCPHDR_SOURCE_OFF && l == 4 => {
-					*reg_type = RULE_REG_TCP_SD_PORT;
+					reg_type = RULE_REG_TCP_SD_PORT;
 				}
 				_ => {
 					error!(
@@ -650,8 +634,13 @@ fn parse_rule_payload(e: &NftnlExpr, r: &mut rule_t) {
 			);
 		}
 	}
+	match dreg as _ {
+		NFT_REG_1 => ctx.reg1_type = reg_type,
+		NFT_REG_2 => ctx.reg2_type = reg_type,
+		_ => {}
+	}
 }
-fn parse_rule_cmp(e: &NftnlExpr, r: &mut rule_t) {
+fn parse_rule_cmp(e: &NftnlExpr, r: &mut rule_t, ctx: &mut parse_ctx) {
 	unsafe {
 		let op = e.get_u32(NFTNL_EXPR_CMP_OP as _);
 		if op != NFT_CMP_EQ as u32 {
@@ -672,7 +661,7 @@ fn parse_rule_cmp(e: &NftnlExpr, r: &mut rule_t) {
 		}
 		let data_len = data_val.unwrap().len() as u32;
 		let data_val = data_val.unwrap().as_ptr();
-		match r.reg1_type {
+		match ctx.reg1_type {
 			RULE_REG_IIF => {
 				if data_len == size_of::<u32>() as u32 {
 					r.ingress_ifidx = *(data_val as *const u32);
@@ -737,17 +726,17 @@ fn parse_rule_cmp(e: &NftnlExpr, r: &mut rule_t) {
 			_ => {
 				debug!(
 					"Unknown cmp (r1type:{}, data_len:{}, op:{})",
-					r.reg1_type as u8, data_len, op
+					ctx.reg1_type as u8, data_len, op
 				);
 				trace!("unknown parse rule expr: {:?}", e);
 				return;
 			}
 		}
 
-		r.reg1_type = RULE_REG_NONE;
+		ctx.reg1_type = RULE_REG_NONE;
 	}
 }
-fn rule_expr_cb(e: &NftnlExpr, r: &mut rule_t) -> i32 {
+fn rule_expr_cb(e: &NftnlExpr, r: &mut rule_t, ctx: &mut parse_ctx) -> i32 {
 	unsafe {
 		let attr_name = e.get_str(NFTNL_EXPR_NAME as _);
 
@@ -760,12 +749,12 @@ fn rule_expr_cb(e: &NftnlExpr, r: &mut rule_t) -> i32 {
 			e
 		);
 		match CStr::from_ptr(attr_name).to_str().unwrap_or("") {
-			"cmp" => parse_rule_cmp(e, r),
-			"nat" => parse_rule_nat(e, r),
-			"meta" => parse_rule_meta(e, r),
+			"cmp" => parse_rule_cmp(e, r, ctx),
+			"nat" => parse_rule_nat(e, r, ctx),
+			"meta" => parse_rule_meta(e, r, ctx),
 			"counter" => parse_rule_counter(e, r),
-			"payload" => parse_rule_payload(e, r),
-			"immediate" => parse_rule_immediate(e, r),
+			"payload" => parse_rule_payload(e, r, ctx),
+			"immediate" => parse_rule_immediate(e, r, ctx),
 			unknown => {
 				debug!("unknown attr: {}", unknown);
 			}
@@ -814,9 +803,11 @@ extern "C" fn table_cb(nlh: *const nlmsghdr, data: *mut libc::c_void) -> i32 {
 		return MNL_CB_OK as _;
 	}
 
-	r.table = unsafe { CString::from(CStr::from_ptr(rule.get_str(NFTNL_RULE_TABLE) as *mut _)) };
+	// r.table = unsafe { CString::from(CStr::from_ptr(rule.get_str(NFTNL_RULE_TABLE) as *mut _)) };
 
-	r.chain = CString::from(chain_cstr);
+	// r.chain = CString::from(chain_cstr);
+	r.table = cb_data.table.into();
+	r.chain = cb_data.chain.into();
 
 	r.family = rule.get_u32(NFTNL_RULE_FAMILY);
 
@@ -832,8 +823,9 @@ extern "C" fn table_cb(nlh: *const nlmsghdr, data: *mut libc::c_void) -> i32 {
 	r.type_0 = cb_data.type_0;
 
 	if let Some(iter) = rule.iter() {
+		let mut ctx = parse_ctx::default();
 		for itr in iter {
-			rule_expr_cb(&itr, &mut r);
+			rule_expr_cb(&itr, &mut r, &mut ctx);
 		}
 	}
 
@@ -863,7 +855,7 @@ impl nftable {
 			rule_chain_type::RULE_CHAIN_FILTER => {
 				if self.rule_list_filter_validate != RULE_CACHE_VALID {
 					let r = Self::refresh_nft_cache(
-						self.mnl_sock,
+						self.mnl_sock.as_ref().unwrap(),
 						&mut self.mnl_seq,
 						self.mnl_portid,
 						&mut self.filter_rule,
@@ -885,7 +877,7 @@ impl nftable {
 			rule_chain_type::RULE_CHAIN_PEER => {
 				if self.rule_list_peer_validate != RULE_CACHE_VALID {
 					let r = Self::refresh_nft_cache(
-						self.mnl_sock,
+						self.mnl_sock.as_ref().unwrap(),
 						&mut self.mnl_seq,
 						self.mnl_portid,
 						&mut self.peer_rule,
@@ -907,7 +899,7 @@ impl nftable {
 			rule_chain_type::RULE_CHAIN_REDIRECT => {
 				if self.rule_list_redirect_validate != RULE_CACHE_VALID {
 					let r = Self::refresh_nft_cache(
-						self.mnl_sock,
+						self.mnl_sock.as_ref().unwrap(),
 						&mut self.mnl_seq,
 						self.mnl_portid,
 						&mut self.redirect_rule,
@@ -935,7 +927,7 @@ impl nftable {
 	}
 
 	pub(super) fn refresh_nft_cache(
-		mnl_sock: *mut mnl_socket,
+		mnl_sock: &MnlSocket,
 		mnl_seq: &mut u32,
 		mnl_portid: u32,
 		head: &mut Vec<rule_t>,
@@ -946,10 +938,10 @@ impl nftable {
 	) -> i32 {
 		let mut buf = vec![0u8; max(page_size(), 8192)];
 
-		if mnl_sock.is_null() {
-			error!("netlink not connected");
-			return -1;
-		}
+		// if mnl_sock.is_null() {
+		// 	error!("netlink not connected");
+		// 	return -1;
+		// }
 
 		Self::flush_nft_cache(head);
 
@@ -978,12 +970,12 @@ impl nftable {
 		drop(rule);
 
 		// Send message
-		if unsafe { mnl_socket_sendto(mnl_sock, nlh as *const c_void, (*nlh).nlmsg_len as usize) } < 0 {
+		if unsafe { mnl_socket_sendto(mnl_sock.as_ptr(), nlh as *const c_void, (*nlh).nlmsg_len as usize) } < 0 {
 			error!("mnl_socket_sendto() FAILED: %m");
 			return -1;
 		}
 		'exit: loop {
-			let n = unsafe { mnl_socket_recvfrom(mnl_sock, buf.as_mut_ptr() as *mut c_void, buf.capacity()) };
+			let n = unsafe { mnl_socket_recvfrom(mnl_sock.as_ptr(), buf.as_mut_ptr() as *mut c_void, buf.capacity()) };
 			if n < 0 {
 				error!("mnl_socket_recvfrom FAILED: %m");
 				return -1;
@@ -1230,13 +1222,7 @@ pub(super) fn rule_set_dnat(
 	table: &CStr,
 	chain: &CStr,
 	ifname: &IfName,
-	proto: u8,
-	rhost: Option<Ipv4Addr>,
-	eport: u16,
-	ihost: Ipv4Addr,
-	iport: u16,
-	descr: Option<&str>,
-	handle: Option<&str>,
+	entry: &MapEntry,
 ) -> Option<NftnlRule> {
 	// Allocate new rule
 	let mut rule = NftnlRule::new()?;
@@ -1247,16 +1233,9 @@ pub(super) fn rule_set_dnat(
 	rule.set_str(NFTNL_RULE_CHAIN, chain);
 
 	// Set description if provided
-	if let Some(desc) = descr {
+	if let Some(desc) = &entry.desc {
 		if !desc.is_empty() {
 			rule.set_data(NFTNL_RULE_USERDATA, desc.as_bytes());
-		}
-	}
-
-	// Set handle position if provided
-	if let Some(h) = handle {
-		if let Ok(handle_num) = h.parse::<u64>() {
-			rule.set_u64(NFTNL_RULE_POSITION, handle_num);
 		}
 	}
 
@@ -1269,7 +1248,7 @@ pub(super) fn rule_set_dnat(
 	}
 
 	// Source IP if provided
-	if let Some(rhost) = rhost {
+	if !entry.raddr.is_unspecified() {
 		expr_add_payload(
 			&mut rule,
 			NFT_PAYLOAD_NETWORK_HEADER,
@@ -1277,7 +1256,7 @@ pub(super) fn rule_set_dnat(
 			offset_of!(IpHdr, saddr) as u32,
 			size_of::<u32>() as u32,
 		);
-		expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, rhost.as_octets());
+		expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, entry.raddr.as_octets());
 	}
 
 	// Protocol
@@ -1288,12 +1267,12 @@ pub(super) fn rule_set_dnat(
 		offset_of!(IpHdr, protocol) as u32,
 		size_of::<u8>() as u32,
 	);
-	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, &proto.to_ne_bytes());
+	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, &entry.proto.to_ne_bytes());
 
 	// Handle ports based on protocol
-	match proto {
+	match entry.proto {
 		TCP => {
-			let dport = eport.to_be();
+			let dport = entry.eport.to_be();
 			expr_add_payload(
 				&mut rule,
 				NFT_PAYLOAD_TRANSPORT_HEADER,
@@ -1304,7 +1283,7 @@ pub(super) fn rule_set_dnat(
 			expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, &dport.to_ne_bytes());
 		}
 		UDP => {
-			let dport = eport.to_be();
+			let dport = entry.eport.to_be();
 			expr_add_payload(
 				&mut rule,
 				NFT_PAYLOAD_TRANSPORT_HEADER,
@@ -1321,7 +1300,7 @@ pub(super) fn rule_set_dnat(
 	expr_add_counter(&mut rule);
 
 	// Add NAT expression
-	expr_add_nat(&mut rule, NFT_NAT_DNAT, NFPROTO_IPV4, ihost, iport.to_be());
+	expr_add_nat(&mut rule, NFT_NAT_DNAT, NFPROTO_IPV4, entry.iaddr, entry.iport.to_be());
 
 	// debug_rule(rule);
 
@@ -1333,20 +1312,22 @@ pub(super) fn rule_set_filter(
 	chain: &CStr,
 	family: u8,
 	ifname: &IfName,
-	proto: u8,
-	rhost: Option<Ipv4Addr>,
-	iaddr: Ipv4Addr,
-	eport: u16,
-	iport: u16,
-	rport: u16,
-	descr: Option<&str>,
-	handle: Option<&str>,
+	entry: &MapEntry,
 ) -> Option<NftnlRule> {
 	// Allocate new rule
 	let mut rule = NftnlRule::new()?;
 
 	rule_set_filter_common(
-		table, chain, &mut rule, family, ifname, proto, eport, iport, rport, descr, handle,
+		table,
+		chain,
+		&mut rule,
+		family,
+		ifname,
+		entry.proto,
+		entry.eport,
+		entry.iport,
+		entry.rport,
+		entry.desc.as_deref(),
 	);
 	expr_add_payload(
 		&mut rule,
@@ -1355,8 +1336,9 @@ pub(super) fn rule_set_filter(
 		offset_of!(IpHdr, daddr) as u32,
 		size_of::<Ipv4Addr>() as u32,
 	);
-	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, iaddr.as_octets());
-	if let Some(rhost) = rhost {
+	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, entry.iaddr.as_octets());
+
+	if !entry.raddr.is_unspecified() {
 		expr_add_payload(
 			&mut rule,
 			NFT_PAYLOAD_NETWORK_HEADER,
@@ -1364,7 +1346,7 @@ pub(super) fn rule_set_filter(
 			offset_of!(IpHdr, saddr) as u32,
 			4,
 		);
-		expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, rhost.as_octets());
+		expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, entry.raddr.as_octets());
 	}
 
 	expr_add_payload(
@@ -1374,7 +1356,7 @@ pub(super) fn rule_set_filter(
 		offset_of!(IpHdr, protocol) as u32,
 		1,
 	);
-	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, &proto.to_ne_bytes());
+	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, &entry.proto.to_ne_bytes());
 	expr_set_reg_verdict(&mut rule, NF_ACCEPT as _);
 
 	Some(rule)
@@ -1385,19 +1367,22 @@ pub(super) fn rule_set_filter6(
 	chain: &CStr,
 	family: u8,
 	ifname: &IfName,
-	proto: u8,
-	rhost6: Option<&Ipv6Addr>,
-	iaddr6: &Ipv6Addr,
-	eport: u16,
-	iport: u16,
-	rport: u16,
+	entry: &PinholeEntry,
 	descr: Option<&str>,
-	handle: Option<&str>,
 ) -> Option<NftnlRule> {
 	let mut rule = NftnlRule::new()?;
 
 	rule_set_filter_common(
-		table, chain, &mut rule, family, ifname, proto, eport, iport, rport, descr, handle,
+		table,
+		chain,
+		&mut rule,
+		family,
+		ifname,
+		entry.proto,
+		0,
+		entry.iport,
+		entry.rport,
+		descr.as_deref(),
 	);
 	expr_add_payload(
 		&mut rule,
@@ -1406,8 +1391,8 @@ pub(super) fn rule_set_filter6(
 		offset_of!(Ipv6Hdr, daddr) as u32,
 		size_of::<Ipv6Addr>() as u32,
 	);
-	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, iaddr6.as_octets());
-	if let Some(rhost) = rhost6 {
+	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, entry.iaddr.as_octets());
+	if !entry.raddr.is_unspecified() {
 		expr_add_payload(
 			&mut rule,
 			NFT_PAYLOAD_NETWORK_HEADER,
@@ -1415,7 +1400,7 @@ pub(super) fn rule_set_filter6(
 			offset_of!(Ipv6Hdr, saddr) as u32,
 			size_of::<Ipv6Addr>() as u32,
 		);
-		expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, rhost.as_octets());
+		expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, entry.raddr.as_octets());
 	}
 
 	expr_add_payload(
@@ -1425,7 +1410,7 @@ pub(super) fn rule_set_filter6(
 		offset_of!(IpHdr, protocol) as u32,
 		1,
 	);
-	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, &proto.to_ne_bytes());
+	expr_add_cmp(&mut rule, NFT_REG_1, NFT_CMP_EQ, &entry.proto.to_ne_bytes());
 	expr_set_reg_verdict(&mut rule, NF_ACCEPT as _);
 	Some(rule)
 }
@@ -1441,7 +1426,6 @@ pub(super) fn rule_set_filter_common(
 	iport: u16,  // destination port
 	rport: u16,  // optional source port
 	descr: Option<&str>,
-	handle: Option<&str>,
 ) {
 	// Set basic rule properties
 	rule.set_u32(NFTNL_RULE_FAMILY, family as u32);
@@ -1452,13 +1436,6 @@ pub(super) fn rule_set_filter_common(
 	if let Some(desc) = descr {
 		if !desc.is_empty() {
 			rule.set_data(NFTNL_RULE_USERDATA, desc.as_bytes());
-		}
-	}
-
-	// Set handle position if provided
-	if let Some(h) = handle {
-		if let Ok(handle_num) = h.parse::<u64>() {
-			rule.set_u64(NFTNL_RULE_POSITION, handle_num);
 		}
 	}
 
@@ -1522,7 +1499,7 @@ pub(super) fn rule_set_filter_common(
 	}
 }
 
-pub(super) fn rule_del_handle(rule: &rule_t, nft_nat_family: c_int) -> Option<NftnlRule> {
+pub(super) fn rule_del_handle(rule: &rule_t, nft_nat_family: u8) -> Option<NftnlRule> {
 	let mut r = NftnlRule::new()?;
 	if rule.type_0 == RULE_NAT {
 		r.set_u32(NFTNL_RULE_FAMILY, nft_nat_family as _);
@@ -1585,7 +1562,7 @@ impl nftable {
 	}
 	pub(super) fn start_batch(&mut self, buf: &mut [u8]) -> *mut mnl_nlmsg_batch {
 		self.mnl_seq = upnp_time().as_secs() as _;
-		if self.mnl_sock.is_null() {
+		if self.mnl_sock.is_none() {
 			error!("netlink not connected");
 			return ptr::null_mut();
 		}
@@ -1610,12 +1587,16 @@ impl nftable {
 			self.mnl_seq += 1;
 			mnl_nlmsg_batch_next(batch);
 
-			if self.mnl_sock.is_null() {
+			if self.mnl_sock.is_none() {
 				error!("netlink not connected");
 				return -1;
 			}
 
-			let mut n = mnl_socket_sendto(self.mnl_sock, mnl_nlmsg_batch_head(batch), mnl_nlmsg_batch_size(batch));
+			let mut n = mnl_socket_sendto(
+				self.mnl_sock.as_ref().unwrap().as_ptr(),
+				mnl_nlmsg_batch_head(batch),
+				mnl_nlmsg_batch_size(batch),
+			);
 			if n == -1 {
 				error!("mnl_socket_sendto() FAILED: %m");
 				return -2;
@@ -1623,7 +1604,11 @@ impl nftable {
 			mnl_nlmsg_batch_stop(batch);
 			let mut buf = vec![0u8; max(page_size(), 8192)];
 			loop {
-				n = mnl_socket_recvfrom(self.mnl_sock, buf.as_mut_ptr() as _, buf.capacity());
+				n = mnl_socket_recvfrom(
+					self.mnl_sock.as_ref().unwrap().as_ptr(),
+					buf.as_mut_ptr() as _,
+					buf.capacity(),
+				);
 				if n == -1 {
 					error!("mnl_socket_recvfrom() FAILED: %m");
 					return -3;
@@ -1682,7 +1667,7 @@ mod tests {
 		assert_eq!(nft.init_redirect(), 0);
 		let mut rules = vec![];
 		let r = nftable::refresh_nft_cache(
-			nft.mnl_sock,
+			nft.mnl_sock.as_ref().unwrap(),
 			&mut nft.mnl_seq,
 			nft.mnl_portid,
 			&mut rules,

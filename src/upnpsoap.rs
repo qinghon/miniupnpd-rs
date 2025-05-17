@@ -1,23 +1,22 @@
 #![allow(unused_mut)]
 
+use crate::getconnstatus::get_wan_connection_status_str;
 #[cfg(not(feature = "multiple_ext_ip"))]
 use crate::getifaddr::addr_is_reserved;
 use crate::getifaddr::getifaddr;
 use crate::getifstats::ifdata;
-use crate::upnphttp::{BuildHeader_upnphttp, BuildResp2_upnphttp, SendRespAndClose_upnphttp, upnphttp};
-use std::fmt::Write;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
-use std::random::random;
-
-use crate::getconnstatus::get_wan_connection_status_str;
 use crate::upnpglobalvars::*;
+use crate::upnphttp::{BuildHeader_upnphttp, BuildResp2_upnphttp, SendRespAndClose_upnphttp, upnphttp};
 use crate::upnppermissions::{AllowBitMap, get_permitted_ext_ports};
 use crate::upnppinhole::*;
 use crate::upnpredirect::*;
 use crate::upnpreplyparse::{GetValueFromNameValueList, NameValueParserData, ParseNameValue};
 use crate::upnpurns::SERVICE_ID_WANIPC;
-use crate::upnputils::{proto_atoi, upnp_get_uptime};
-use crate::{Backend, OS, TCP, UDP};
+use crate::upnputils::{proto_atoi, upnp_get_uptime, upnp_time};
+use crate::{Backend, OS, PinholeEntry, TCP, UDP};
+use std::fmt::Write;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::random::random;
 
 pub const UPNP_UI4_MAX: u32 = u32::MAX;
 
@@ -381,19 +380,19 @@ fn AddPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 		SoapError(h, 716, "WildCardNotPermittedInExtPort");
 		return;
 	}
-	let eaddr = if !r_host.is_empty() {
+	let raddr = if !r_host.is_empty() {
 		if cfg!(feature = "strict") && r_host != "*" {
 			SoapError(h, 726, "RemoteHostOnlySupportsWildcard");
 			return;
 		}
 		if let Ok(addr) = r_host.parse() {
-			Some(addr)
+			addr
 		} else {
 			SoapError(h, 402, "Invalid Args");
 			return;
 		}
 	} else {
-		Some(Ipv4Addr::UNSPECIFIED)
+		Ipv4Addr::UNSPECIFIED
 	};
 
 	leaseduration = leaseduration_str.parse().unwrap_or(0);
@@ -417,9 +416,9 @@ fn AddPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 		protocol,
 		desc.unwrap_or_default(),
 		leaseduration,
-		eaddr.unwrap_or(Ipv4Addr::UNSPECIFIED)
+		raddr
 	);
-	let r = upnp_redirect(rt, eaddr, iaddr, eport, iport, proto, desc, leaseduration);
+	let r = upnp_redirect(op, rt, raddr, iaddr, eport, iport, proto, desc, leaseduration);
 
 	// possible error codes for AddPortMapping :
 	// 402 - Invalid Args
@@ -523,19 +522,19 @@ fn AddAnyPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 		SoapError(h, 726, "RemoteHostOnlySupportsWildcard");
 		return;
 	}
-	let eaddr = if !r_host.is_empty() {
+	let raddr = if !r_host.is_empty() {
 		if cfg!(feature = "strict") && r_host != "*" {
 			SoapError(h, 726, "RemoteHostOnlySupportsWildcard");
 			return;
 		}
 		if let Ok(addr) = r_host.parse() {
-			Some(addr)
+			addr
 		} else {
 			SoapError(h, 402, "Invalid Args");
 			return;
 		}
 	} else {
-		Some(Ipv4Addr::UNSPECIFIED)
+		Ipv4Addr::UNSPECIFIED
 	};
 
 	let op = global_option.get().unwrap();
@@ -551,7 +550,7 @@ fn AddAnyPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	let rt = h.rt_options.as_mut().unwrap();
 	let proto = proto_atoi(protocol);
 
-	let mut r = upnp_redirect(rt, eaddr, iaddr, eport, iport, proto, Some(desc), leaseduration);
+	let mut r = upnp_redirect(op, rt, raddr, iaddr, eport, iport, proto, Some(desc), leaseduration);
 	if r != 0 && r != -1 {
 		let mut eport_below = eport;
 		let mut eport_above = eport;
@@ -576,7 +575,7 @@ fn AddAnyPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 			if !allowed_eports.get(eport) {
 				continue;
 			}
-			r = upnp_redirect(rt, eaddr, iaddr, eport, iport, proto, Some(desc), leaseduration);
+			r = upnp_redirect(op, rt, raddr, iaddr, eport, iport, proto, Some(desc), leaseduration);
 			if r == 0 || r == -1 {
 				/* OK or failure : Stop */
 				break;
@@ -626,15 +625,15 @@ fn GetSpecificPortMappingEntry(h: &mut upnphttp, action: &str, ns: &str) {
 	}
 	let rt = h.rt_options.as_ref().unwrap();
 	let proto = proto_atoi(protocol);
-	if let Some(r) = rt.nat_impl.get_redirect_rule(|x| x.sport == eport && x.proto == proto) {
+	if let Some(r) = rt.nat_impl.get_redirect_rule(|x| x.eport == eport && x.proto == proto) {
 		info!(
 			"{}: rhost='{}' {} {} found => {}:{} desc='{}' duration={}",
 			action,
 			r_host,
 			ext_port,
 			protocol,
-			r.daddr,
-			r.dport,
+			r.iaddr,
+			r.iport,
 			r.desc.as_ref().map(|x| x.as_str()).unwrap_or_default(),
 			r.timestamp
 		);
@@ -660,7 +659,7 @@ fn GetSpecificPortMappingEntry(h: &mut upnphttp, action: &str, ns: &str) {
 			<NewPortMappingDescription>{}</NewPortMappingDescription>\
 			<NewLeaseDuration>{}</NewLeaseDuration>\
 			</u:{action}Response>",
-			r.dport, r.daddr, desc, r.timestamp
+			r.iport, r.iaddr, desc, r.timestamp
 		);
 		BuildSendAndCloseSoapResp(h, body.as_bytes());
 	} else {
@@ -697,7 +696,7 @@ fn DeletePortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	let proto = proto_atoi(protocol);
 	if GETFLAG!(op.runtime_flags, SECUREMODEMASK) {
 		if let Some(e) = upnp_get_redirection_infos(&rt.nat_impl, eport, proto) {
-			if h.clientaddr != IpAddr::V4(e.daddr) {
+			if h.clientaddr != IpAddr::V4(e.iaddr) {
 				if cfg!(feature = "igd2") {
 					SoapError(h, 606, "Action not authorized");
 				} else {
@@ -821,7 +820,7 @@ fn GetGenericPortMappingEntry(h: &mut upnphttp, action: &str, ns: &str) {
             <NewPortMappingDescription>{}</NewPortMappingDescription>\
             <NewLeaseDuration>{}</NewLeaseDuration>\
             </u:{action}Response>",
-			r.daddr, r.dport, r.proto, r.sport, r.saddr, desc, r.timestamp
+			r.raddr, r.eport, r.proto, r.iport, r.iaddr, desc, r.timestamp
 		);
 		BuildSendAndCloseSoapResp(h, body.as_bytes());
 	} else {
@@ -895,9 +894,8 @@ fn GetListOfPortMappings(h: &mut upnphttp, action: &str, ns: &str) {
 					desc = desc_s.as_str();
 				}
 
-				body.push_str(
-					format!(
-						"<p:PortMappingEntry>\
+				let _ = body.write_fmt(format_args!(
+					"<p:PortMappingEntry>\
 						<p:NewRemoteHost>{}</p:NewRemoteHost>\
 						<p:NewExternalPort>{}</p:NewExternalPort>\
 						<p:NewProtocol>{}</p:NewProtocol>\
@@ -907,16 +905,14 @@ fn GetListOfPortMappings(h: &mut upnphttp, action: &str, ns: &str) {
 						<p:NewDescription>{}</p:NewDescription>\
 						<p:NewLeaseTime>{}</p:NewLeaseTime>\
 						</p:PortMappingEntry>",
-						e.daddr,
-						e.dport,
-						protocol.unwrap(),
-						e.sport,
-						e.saddr,
-						desc,
-						e.timestamp
-					)
-					.as_str(),
-				);
+					e.raddr,
+					e.eport,
+					protocol.unwrap_or_default(),
+					e.iport,
+					e.iaddr,
+					desc,
+					e.timestamp
+				));
 			}
 		}
 	}
@@ -1180,7 +1176,7 @@ fn AddPinhole(h: &mut upnphttp, action: &str, ns: &str) {
 		match std::net::ToSocketAddrs::to_socket_addrs(&(rem_host, rport)) {
 			Ok(mut addrs) => {
 				if let Some(SocketAddr::V6(addr)) = addrs.find(|a| a.is_ipv6()) {
-					Some(addr.ip().clone())
+					Some(*addr.ip())
 				} else {
 					None
 				}
@@ -1225,18 +1221,19 @@ fn AddPinhole(h: &mut upnphttp, action: &str, ns: &str) {
 		ltime
 	);
 	let rt = h.rt_options.as_mut().unwrap();
+	let op = global_option.get().unwrap();
 	let mut new_uid = 0u16;
-	match upnp_add_inboundpinhole(
-		&mut rt.nat_impl,
-		rem_ip,
+	let pinhole = PinholeEntry {
+		raddr: rem_ip.unwrap_or(Ipv6Addr::UNSPECIFIED),
 		rport,
-		iaddr,
 		iport,
-		proto as u8,
-		Some("IGD2 pinhole"),
-		ltime as u32,
-		&mut new_uid,
-	) {
+		proto: proto as u8,
+		iaddr,
+		desc: Some("IGD2 pinhole".into()),
+		timestamp: upnp_time().as_secs() + ltime as u64,
+		..Default::default()
+	};
+	match upnp_add_inboundpinhole(op, &mut rt.nat_impl, &pinhole, &mut new_uid) {
 		1 => {
 			let body =
 				format!("<u:{action}Response xmlns:u=\"{ns}\"><UniqueID>{new_uid}</UniqueID></u:{action}Response>");
@@ -1462,7 +1459,7 @@ fn GetPinholePackets(h: &mut upnphttp, action: &str, ns: &str) {
 		SoapError(h, 704, "NoSuchEntry");
 	}
 }
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 fn SendSetupMessage(h: &mut upnphttp, action: &str, ns: &str) {
 	let mut data: NameValueParserData = Default::default();
 	ParseNameValue(h.get_req_str_from(h.req_contentoff), &mut data);
@@ -1489,7 +1486,7 @@ fn SendSetupMessage(h: &mut upnphttp, action: &str, ns: &str) {
 	);
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 fn GetSupportedProtocols(h: &mut upnphttp, action: &str, ns: &str) {
 	const PROTOCOL_LIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <SupportedProtocols xmlns="urn:schemas-upnp-org:gw:DeviceProtection"
@@ -1507,16 +1504,20 @@ fn GetSupportedProtocols(h: &mut upnphttp, action: &str, ns: &str) {
 	);
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 fn GetAssignedRoles(h: &mut upnphttp, action: &str, ns: &str) {
 	let mut role_list = "Public"; // Default role list
 
 	#[cfg(feature = "https")]
 	{
-		use openssl_sys::SSL_get1_peer_certificate;
+		#[cfg(not(openssl3))]
+		use openssl_sys::SSL_get_peer_certificate as peer_fn;
+		#[cfg(openssl3)]
+		use openssl_sys::SSL_get0_peer_certificate as peer_fn;
+		
 		use openssl_sys::X509_free;
 		if !h.ssl.is_none() {
-			let peer_cert = unsafe { SSL_get1_peer_certificate(h.ssl.as_ptr()) };
+			let peer_cert = unsafe { peer_fn(h.ssl.as_ptr()) };
 			if !peer_cert.is_null() {
 				role_list = "Admin Basic"; // Update role list based on client certificate
 				unsafe { X509_free(peer_cert) };
@@ -1575,11 +1576,11 @@ const soapMethods: &[soapMethod<fn(&mut upnphttp, &str, &str)>] = &[
 	#[cfg(feature = "ipv6")]
 	soapMethod { methodName: "GetPinholePackets", methodImpl: GetPinholePackets }, /* Required */
 	/* DeviceProtection */
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	soapMethod { methodName: "SendSetupMessage", methodImpl: SendSetupMessage }, /* Required */
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	soapMethod { methodName: "GetSupportedProtocols", methodImpl: GetSupportedProtocols }, /* Required */
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	soapMethod { methodName: "GetAssignedRoles", methodImpl: GetAssignedRoles }, /* Required */
 ];
 

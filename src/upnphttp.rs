@@ -11,11 +11,11 @@ use crate::miniupnpdpath::*;
 use crate::options::*;
 use crate::upnpdescgen::*;
 use crate::upnpevents::{upnpevents_addSubscriber, upnpevents_removeSubscriber, upnpevents_renewSubscription};
+use crate::upnpglobalvars::OnceCell;
 use crate::upnpglobalvars::{FORCEIGDDESCV1MASK, global_option, os_version};
 use crate::upnpsoap::ExecuteSoapAction;
 use crate::{GETFLAG, debug, info, log};
 use crate::{error, notice, warn};
-use once_cell::sync::OnceCell;
 use socket2::Socket;
 #[cfg(feature = "https")]
 use std::ffi::{CStr, c_int};
@@ -300,12 +300,13 @@ extern "C" fn verify_callback(preverify_ok: c_int, ctx: *mut X509_STORE_CTX) -> 
 }
 #[cfg(feature = "https")]
 pub fn init_ssl(op: &mut Options, rt: &mut RtOptions) -> i32 {
-	use libc::ENOENT;
+	// use libc::ENOENT;
 	use openssl_sys::OPENSSL_INIT_LOAD_CRYPTO_STRINGS;
 	use std::ptr;
 
 	if op.https_cert.is_empty() || op.https_key.is_empty() {
-		return -ENOENT;
+		// return -ENOENT;
+		return 0;
 	}
 
 	unsafe {
@@ -741,7 +742,7 @@ fn ProcessHttpQuery_upnphttp(h: &mut upnphttp) {
 				WANIP6FC_PATH => {
 					sendXMLdesc(h, gen6FC, runtime_flags);
 				}
-				#[cfg(feature = "_dp_service")]
+				#[cfg(feature = "dp_service")]
 				DP_PATH => {
 					sendXMLdesc(h, genDP, runtime_flags);
 				}

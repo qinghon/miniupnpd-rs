@@ -128,8 +128,8 @@ impl Default for Options {
 			upnp_nftables_family_split: false,
 			enable_natpmp: false,
 			enable_pcp_pmp: false,
-			min_lifetime: 0,
-			max_lifetime: 0,
+			min_lifetime: 120,
+			max_lifetime: 86400,
 			pcp_allow_thirdparty: Default::default(),
 			enable_upnp: false,
 			lease_file: Default::default(),
@@ -226,7 +226,6 @@ pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str, _runtime_flag: u32) ->
 }
 
 fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bool {
-
 	match key {
 		"ext_ifname" => {
 			op.ext_ifname = match IfName::from_str(value) {
@@ -446,11 +445,10 @@ pub fn readoptionsfile(fname: &str, _debug_flag: bool) -> Result<Options, io::Er
 	let mut option = Options::default();
 
 	while let Some(Ok(line_buf)) = reader.read_line(&mut file) {
-		let line = match str::from_utf8(line_buf) {
-			Ok(v) => v,
+		let line_ = match str::from_utf8(line_buf) {
+			Ok(v) => v.trim(),
 			Err(_) => continue,
 		};
-		let line_ = line.trim_start();
 		if line_.is_empty() || line_.starts_with('#') {
 			continue;
 		}

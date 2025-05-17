@@ -1,11 +1,12 @@
 use crate::warp::{FdSet, IfName, make_timeval, select};
-use crate::{Backend, UDP, debug, error, info, nat_impl, notice, warn};
+use crate::{Backend, MapEntry, UDP, debug, error, info, nat_impl, notice, warn};
 pub use libc::IPPROTO_UDP;
 use socket2::Socket;
 use std::mem::MaybeUninit;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
 use std::random::random;
+use std::rc::Rc;
 use std::time::Duration;
 use std::{io, mem};
 
@@ -324,17 +325,11 @@ pub fn perform_stun(
 		local_ports[0], local_ports[1], local_ports[2], local_ports[3]
 	);
 
+	let mut entry = MapEntry { iaddr: if_addr, proto: UDP, desc: Some(Rc::from("stun test")), ..Default::default() };
 	for i in 0..4 {
-		if nat_backend.add_filter_rule2(
-			if_name,
-			None,
-			if_addr,
-			local_ports[i],
-			local_ports[i],
-			UDP,
-			Some("stun test"),
-		) < 0
-		{
+		entry.eport = local_ports[i];
+		entry.iport = local_ports[i];
+		if nat_backend.add_filter_rule(if_name, &entry) < 0 {
 			error!("perform_stun:  add_filter_rule2(..., {}, ...) FAILED", local_ports[i]);
 		}
 	}

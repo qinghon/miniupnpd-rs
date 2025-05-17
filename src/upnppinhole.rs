@@ -1,3 +1,4 @@
+use crate::options::Options;
 use crate::upnpglobalvars::global_option;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
 use crate::warp::StackBufferReader;
@@ -10,7 +11,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::{fs, io};
 
-pub fn reload_from_lease_file6(nat: &mut nat_impl, lease_file6: &str) -> io::Result<()> {
+pub fn reload_from_lease_file6(op: &Options, nat: &mut nat_impl, lease_file6: &str) -> io::Result<()> {
 	if !Path::new(lease_file6).exists() {
 		return Err(io::ErrorKind::NotFound.into());
 	}
@@ -56,7 +57,7 @@ pub fn reload_from_lease_file6(nat: &mut nat_impl, lease_file6: &str) -> io::Res
 			Some(p) => p,
 			None => continue,
 		};
-		let uid = match parts.next().and_then(|s| s.parse::<i32>().ok()) {
+		let _uid = match parts.next().and_then(|s| s.parse::<i32>().ok()) {
 			Some(uid) => uid,
 			None => continue,
 		};
@@ -77,80 +78,64 @@ pub fn reload_from_lease_file6(nat: &mut nat_impl, lease_file6: &str) -> io::Res
 			0
 		};
 		let mut uid_new = 0;
-		let r = upnp_add_inboundpinhole(
-			nat,
-			Some(rem_client),
-			rem_port,
-			int_client,
-			int_port,
+		let mut pinhole = PinholeEntry {
+			raddr: rem_client,
+			rport: rem_port,
+			iport: int_port,
 			proto,
-			desc,
-			leaseduration as u32,
-			&mut uid_new,
-		);
+			iaddr: int_client,
+			desc: desc.map(Rc::from),
+			timestamp: upnp_time().as_secs() + leaseduration,
+			..Default::default()
+		};
+		let r = upnp_add_inboundpinhole(op, nat, &pinhole, &mut uid_new);
 		if r == -1 {
 			error!(
 				"Error: Failed to add {}:{} -> {}:{} protocol {}",
 				rem_client, rem_port, int_client, int_port, proto
 			);
 		} else if r == -2 {
-			lease_file6_add(
-				Some(rem_client),
-				int_client,
-				rem_port,
-				int_port,
-				proto,
-				desc,
-				uid as u32,
-				timestamp,
-			);
+			pinhole.index = uid_new as _;
+			lease_file6_add(&pinhole, uid_new as _, &op.lease_file6);
 		}
 	}
 
 	Ok(())
 }
 
-fn lease_file6_add(
-	raddr: Option<Ipv6Addr>,
-	iaddr: Ipv6Addr,
-	eport: u16,
-	iport: u16,
-	proto: u8,
-	desc: Option<&str>,
-	uid: u32,
-	leaseduration: u32,
-) -> i32 {
-	let lease_file = global_option.get().unwrap().lease_file6.as_str();
-	if lease_file.is_empty() {
+fn lease_file6_add(pinhole: &PinholeEntry, uid: i32, lease_file6: &str) -> i32 {
+	if lease_file6.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::OpenOptions::new().read(true).write(true).append(true).open(lease_file) {
+	let mut fd = match fs::OpenOptions::new().read(true).append(true).open(lease_file6) {
 		Ok(fd) => fd,
 		Err(_) => {
-			error!("could to open lease file {}", lease_file);
+			error!("could to open lease file {}", lease_file6);
 			return -1;
 		}
 	};
-	let timestamp = if leaseduration > 0 {
-		upnp_time().as_secs() + leaseduration as u64
-	} else {
-		0
-	};
+	let timestamp = if pinhole.timestamp > 0 { pinhole.timestamp } else { 0 };
 
 	// if timestamp != 0 {
 	//     // timestamp -= upnp_time().as_secs() as u32;
 	// };
+	let uid = if uid >= 0 { uid as u16 } else { pinhole.index as u16 };
 
-	let _ = write!(
+	let _ = writeln!(
 		fd,
-		"{};{iaddr};{iport};{};{eport};{uid};{timestamp};{}\n",
-		proto_itoa(proto),
-		if raddr.is_none() {
+		"{};{};{};{};{};{};{};{}",
+		proto_itoa(pinhole.proto),
+		pinhole.iaddr,
+		pinhole.iport,
+		if pinhole.raddr.is_unspecified() {
 			"".to_string()
 		} else {
-			format!("{}", raddr.unwrap())
+			format!("{}", pinhole.raddr)
 		},
-		desc.unwrap_or("")
+		pinhole.rport,
+		uid,
+		timestamp,
+		pinhole.desc.as_deref().unwrap_or_default()
 	);
 
 	0
@@ -229,15 +214,15 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 			};
 
 			if uid == uid_str {
-				let _ = write!(
+				let _ = writeln!(
 					tmp,
-					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{};{desc}\n",
+					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{};{desc}",
 					format!("{}", timestamp).as_str()
 				);
 			} else {
-				let _ = write!(
+				let _ = writeln!(
 					tmp,
-					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp_};{desc}\n",
+					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp_};{desc}",
 				);
 			}
 		}
@@ -258,9 +243,9 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
-	let tmpfilename = format!("{}XXXXXX", lease_file);
+	let tmp_filename = format!("{}XXXXXX", lease_file);
 
-	let mut tmp = match fs::File::create(tmpfilename.as_str()) {
+	let mut tmp = match fs::File::create(tmp_filename.as_str()) {
 		Ok(f) => f,
 		Err(_) => {
 			error!("could not open temporary lease file");
@@ -330,9 +315,9 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 		}
 	}
 
-	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
+	if let Err(_) = fs::rename(&tmp_filename, lease_file.as_str()) {
 		error!("could not rename temporary lease file to {}", lease_file);
-		let _ = fs::remove_file(tmpfilename.as_str());
+		let _ = fs::remove_file(tmp_filename.as_str());
 	}
 	0
 }
@@ -402,20 +387,17 @@ pub fn lease_file6_expire() -> i32 {
 				None => continue,
 			};
 
-			match u64::from_str_radix(timestamp, 10) {
-				Ok(t) => {
-					debug!("Expire: timestamp is '{}'", t);
-					debug!("Expire: current timestamp is '{}'", current_unix_time);
-					if t > 0 && current_unix_time > t || t == 0 {
-						continue;
-					}
+			if let Ok(t) = u64::from_str_radix(timestamp, 10) {
+				debug!("Expire: timestamp is '{}'", t);
+				debug!("Expire: current timestamp is '{}'", current_unix_time);
+				if t > 0 && current_unix_time > t || t == 0 {
+					continue;
 				}
-				Err(_) => {}
 			}
 
-			let _ = write!(
+			let _ = writeln!(
 				tmp,
-				"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}\n"
+				"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}"
 			);
 		}
 	}
@@ -438,43 +420,37 @@ where
 	}
 	None
 }
-pub fn upnp_add_inboundpinhole(
-	nat: &mut nat_impl,
-	raddr: Option<Ipv6Addr>,
-	rport: u16,
-	iaddr: Ipv6Addr,
-	iport: u16,
-	proto: u8,
-	desc: Option<&str>,
-	leasetime: u32,
-	uid: &mut u16,
-) -> i32 {
-	let timestamp = upnp_time().as_secs() + leasetime as u64;
+pub fn upnp_add_inboundpinhole(op: &Options, nat: &mut nat_impl, pe: &PinholeEntry, uid: &mut u16) -> i32 {
+	// let timestamp = upnp_time().as_secs() + pinhole_entry.timestamp;
 
 	let mut uid_old = -1;
 	if let Some(iter) = nat.get_pinhole_iter() {
 		for entry in iter {
-			if let Some(raddr) = raddr.as_ref() {
-				if raddr.eq(&entry.eaddr)
-					&& rport == entry.eport
-					&& iaddr.eq(&entry.iaddr)
-					&& iport == entry.iport
-					&& proto == entry.proto
+			if pe.raddr.is_unspecified() {
+				if pe.raddr == entry.raddr
+					&& pe.rport == entry.rport
+					&& pe.iaddr.eq(&entry.iaddr)
+					&& pe.iport == entry.iport
+					&& pe.proto == entry.proto
 				{
 					uid_old = entry.index as i32;
 					info!(
 						"Pinhole for inbound traffic from [{}]:{} to [{}]:{} with proto {} found uid={}. Updating it.",
-						raddr, rport, iaddr, iport, proto, entry.index
+						pe.raddr, pe.rport, pe.iaddr, pe.iport, pe.proto, entry.index
 					);
 				}
-			} else if rport == entry.eport && iaddr.eq(&entry.iaddr) && iport == entry.iport && proto == entry.proto {
+			} else if pe.rport == entry.rport
+				&& pe.iaddr.eq(&entry.iaddr)
+				&& pe.iport == entry.iport
+				&& pe.proto == entry.proto
+			{
 				info!(
 					"Pinhole for inbound traffic from [{}]:{} to [{}]:{} with proto {} found uid={}. Updating it.",
 					Ipv6Addr::UNSPECIFIED,
-					rport,
-					iaddr,
-					iport,
-					proto,
+					pe.rport,
+					pe.iaddr,
+					pe.iport,
+					pe.proto,
 					entry.index
 				);
 				uid_old = entry.index as i32;
@@ -483,50 +459,18 @@ pub fn upnp_add_inboundpinhole(
 	}
 
 	if uid_old != -1 {
-		let r = upnp_update_inboundpinhole(nat, uid_old as u16, leasetime);
+		let r = upnp_update_inboundpinhole(nat, uid_old as u16, pe.timestamp as _);
 		if r >= 0 {
-			lease_file6_remove(iaddr, iport, proto, -1);
-			lease_file6_add(
-				raddr,
-				iaddr,
-				rport,
-				iport,
-				proto,
-				desc,
-				uid_old as u32,
-				timestamp as u32,
-			);
+			lease_file6_remove(pe.iaddr, pe.iport, pe.proto, -1);
+			lease_file6_add(pe, uid_old, &op.lease_file6);
 		}
 		return if r >= 0 { 1 } else { r };
 	}
 	let ext_ifname6 = &global_option.get().unwrap().ext_ifname6;
-	let uid_new = nat.add_pinhole(
-		ext_ifname6,
-		&PinholeEntry {
-			index: 0,
-			proto,
-			iport,
-			eport: rport,
-			iaddr,
-			eaddr: raddr.unwrap_or(Ipv6Addr::UNSPECIFIED),
-			desc: desc.map(Rc::from),
-			packets: 0,
-			bytes: 0,
-			timestamp,
-		},
-	);
+	let uid_new = nat.add_pinhole(ext_ifname6, pe);
 	if uid_new >= 0 {
-		lease_file6_remove(iaddr, iport, proto, -1);
-		lease_file6_add(
-			raddr,
-			iaddr,
-			rport,
-			iport,
-			proto,
-			desc,
-			uid_new as u32,
-			timestamp as u32,
-		);
+		lease_file6_remove(pe.iaddr, pe.iport, pe.proto, -1);
+		lease_file6_add(pe, uid_new, &op.lease_file6);
 		*uid = uid_new as u16;
 	}
 	if uid_new >= 0 { 1 } else { -1 }

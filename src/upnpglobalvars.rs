@@ -1,5 +1,5 @@
 use crate::*;
-use once_cell::sync::OnceCell;
+pub(crate) use once_cell::sync::OnceCell;
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::AtomicU32;

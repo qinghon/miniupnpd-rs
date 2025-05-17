@@ -8,7 +8,7 @@
 #![feature(let_chains)]
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
 
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::fd::RawFd;
 use std::rc::Rc;
 use std::time::Duration;
@@ -72,7 +72,8 @@ pub mod linux {
 	mod getifstats;
 	pub mod getroute;
 	mod ifacewatcher;
-	mod os_impl;
+	pub(crate) mod netfilter;
+	pub(crate) mod os_impl;
 	#[cfg(feature = "portinuse")]
 	mod portinuse;
 	pub use os_impl::linux as os;
@@ -109,10 +110,7 @@ pub trait OS {
 	fn ProcessInterfaceWatchNotify(&self, ifname: &IfName, fd: RawFd, need_change: &mut bool);
 
 	fn getifstats(&self, if_name: &IfName, data: &mut ifdata) -> i32;
-	#[cfg(feature = "portinuse")]
-	fn port_in_use(&self, nat: &nat_impl, if_name: &IfName, eport: u16, proto: u8, iaddr: &Ipv4Addr, iport: u16)
-	-> i32;
-	#[cfg(not(feature = "portinuse"))]
+
 	fn port_in_use(
 		&self,
 		_nat: &nat_impl,
@@ -123,6 +121,9 @@ pub trait OS {
 		_iport: u16,
 	) -> i32 {
 		0
+	}
+	fn get_nat_ext_addr(_src: Option<SocketAddr>, _dst: Option<SocketAddr>, _proto: u8) -> Option<SocketAddr> {
+		None
 	}
 }
 
@@ -184,27 +185,21 @@ impl Into<u8> for rdr_name_type {
 	}
 }
 
+/// iaddr:iport:proto <-> fw( eaddr:eport:proto )  <-> public(raddr:rport)  
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct FilterEntry {
+pub struct MapEntry {
 	pub index: u32,
-	/// redirect: eaddr
-	/// filter: unused
-	pub saddr: Ipv4Addr,
-	/// redirect: iaddr
-	/// filter: iaddr
-	pub daddr: Ipv4Addr,
-	/// redirect: eport
-	/// filter: eport
-	pub sport: u16,
-	/// redirect: iport
-	/// filter: iport
-	pub dport: u16,
-	#[cfg(feature = "pcp_peer")]
+	pub eaddr: Ipv4Addr,
+	pub iaddr: Ipv4Addr,
+	pub eport: u16,
+	pub iport: u16,
+
 	pub raddr: Ipv4Addr,
-	#[cfg(feature = "pcp_peer")]
 	pub rport: u16,
 	pub proto: u8,
+	/// store dscp value when call [Backend::add_peer_dscp_rule]
+	pub dscp: u8,
 
 	pub packets: u64,
 	pub bytes: u64,
@@ -212,28 +207,29 @@ pub struct FilterEntry {
 	pub desc: Option<Rc<str>>,
 	pub timestamp: u64,
 }
-impl FilterEntry {
+impl MapEntry {
 	const fn default() -> Self {
 		Self {
 			index: 0,
 			proto: 0,
-			sport: 0,
-			dport: 0,
-			saddr: Ipv4Addr::UNSPECIFIED,
-			daddr: Ipv4Addr::UNSPECIFIED,
+			eport: 0,
+			iport: 0,
+			eaddr: Ipv4Addr::UNSPECIFIED,
+			iaddr: Ipv4Addr::UNSPECIFIED,
 			desc: None,
-			#[cfg(feature = "pcp_peer")]
+			// #[cfg(feature = "pcp_peer")]
 			rport: 0,
 			packets: 0,
 			bytes: 0,
 			timestamp: 0,
-			#[cfg(feature = "pcp_peer")]
+			// #[cfg(feature = "pcp_peer")]
 			raddr: Ipv4Addr::UNSPECIFIED,
+			dscp: 0,
 		}
 	}
 }
 
-impl Default for FilterEntry {
+impl Default for MapEntry {
 	fn default() -> Self {
 		Self::default()
 	}
@@ -244,10 +240,10 @@ impl Default for FilterEntry {
 pub struct PinholeEntry {
 	pub index: u32,
 	pub iport: u16,
-	pub eport: u16,
+	pub rport: u16,
 	pub proto: u8,
 	pub iaddr: Ipv6Addr,
-	pub eaddr: Ipv6Addr,
+	pub raddr: Ipv6Addr,
 	pub desc: Option<Rc<str>>,
 	pub packets: u64,
 	pub bytes: u64,
@@ -259,9 +255,9 @@ impl Default for PinholeEntry {
 			index: 0,
 			proto: 0,
 			iport: 0,
-			eport: 0,
+			rport: 0,
 			iaddr: Ipv6Addr::UNSPECIFIED,
-			eaddr: Ipv6Addr::UNSPECIFIED,
+			raddr: Ipv6Addr::UNSPECIFIED,
 			desc: None,
 			packets: 0,
 			bytes: 0,
@@ -275,6 +271,7 @@ impl Default for PinholeEntry {
 pub enum RuleTable {
 	Redirect = 0,
 	Filter,
+	Peer,
 }
 
 pub trait Backend {
@@ -285,14 +282,12 @@ pub trait Backend {
 	fn get_redirect_rule_count(&self, ifname: &IfName) -> i32;
 	// fn get_redirect_rule(&self, ifname:&str, eport: u16, proto: isize) ;
 	// fn get_redirect_rule_by_index(&self, index: u32, ifname: &str) -> Option<FilterEntry>;
-	fn get_redirect_rule<P>(&self, filter: P) -> Option<FilterEntry>
+	fn get_redirect_rule<P>(&self, filter: P) -> Option<MapEntry>
 	where
-		P: Fn(&FilterEntry) -> bool;
-	fn get_iter<'a>(
-		&'a self,
-		ifname: &IfName,
-		table: RuleTable,
-	) -> Option<Box<dyn Iterator<Item = &'a FilterEntry> + 'a>>;
+		P: Fn(&MapEntry) -> bool;
+	fn get_iter<'a>(&'a self, ifname: &IfName, table: RuleTable)
+	-> Option<Box<dyn Iterator<Item = &'a MapEntry> + 'a>>;
+	fn reflush_rule_cache(&mut self) {}
 
 	fn delete_redirect(&mut self, ifname: &IfName, redirect_index: u32) -> i32;
 	fn get_portmappings_in_range(&self, start: u16, end: u16, proto: u8) -> Vec<u16>;
@@ -317,37 +312,26 @@ pub trait Backend {
 
 	fn get_redir_chain_name(&self) -> &str;
 
-	fn add_redirect_rule2(
-		&mut self,
-		ifname: &IfName,
-		rhost: Option<Ipv4Addr>,
-		iaddr: Ipv4Addr,
-		eport: u16,
-		iport: u16,
-		proto: u8,
-		desc: Option<&str>,
-		timestamp: u32,
-	) -> i32;
-	fn add_filter_rule2(
-		&mut self,
-		ifname: &IfName,
-		rhost: Option<Ipv4Addr>,
-		iaddr: Ipv4Addr,
-		eport: u16,
-		iport: u16,
-		proto: u8,
-		desc: Option<&str>,
-	) -> i32;
+	fn add_redirect_rule(&mut self, _ifname: &IfName, _entry: &MapEntry) -> i32;
+	fn add_filter_rule(&mut self, ifname: &IfName, _entry: &MapEntry) -> i32;
 
 	fn delete_filter_rule(&mut self, ifname: &IfName, lport: u16, proto: u8) -> i32;
 	fn delete_filter(&mut self, ifname: &IfName, index: u32) -> i32;
 	fn delete_redirect_and_filter_rules(&mut self, ifname: &IfName, eport: u16, proto: u8) -> i32;
 
-	fn get_pinhole_iter<'a>(&'a mut self) -> Option<Box<dyn Iterator<Item = &'a mut PinholeEntry> + 'a>>;
+	fn get_pinhole_iter<'a>(&'a mut self) -> Option<Box<dyn Iterator<Item = &'a PinholeEntry> + 'a>>;
 	fn add_pinhole(&mut self, ifname: &IfName, entry: &PinholeEntry) -> i32;
 	fn update_pinhole(&mut self, uid: u16, timestamp: u32) -> i32;
 	fn delete_pinhole(&mut self, uid: u16) -> i32;
 	fn clean_pinhole_list(&mut self, next_timestamp: &mut u32) -> i32;
+
+	fn add_peer_redirect_rule(&mut self, _ifname: &IfName, _entry: &MapEntry) -> i32 {
+		-1
+	}
+
+	fn add_peer_dscp_rule(&mut self, _ifname: &IfName, _entry: &MapEntry) -> i32 {
+		-1
+	}
 }
 
 use crate::getifstats::ifdata;

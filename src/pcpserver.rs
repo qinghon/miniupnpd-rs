@@ -12,6 +12,7 @@ use crate::upnputils::*;
 use crate::warp::copy_from_slice;
 use crate::*;
 use socket2::Socket;
+use std::fmt;
 use std::fmt::Formatter;
 #[cfg(feature = "ipv6")]
 use std::io;
@@ -20,7 +21,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::net::{Ipv6Addr, SocketAddrV4, SocketAddrV6};
 use std::os::fd::AsRawFd;
 use std::rc::Rc;
-use std::{fmt, mem};
 
 const PCP_MIN_LEN: u16 = 24;
 const PCP_MAX_LEN: u16 = 1100;
@@ -263,8 +263,8 @@ fn parseCommonRequestHeader(buf: &[u8], pcp_msg_info: &mut pcp_info) -> i32 {
 	pcp_msg_info.version = buf[0];
 	pcp_msg_info.opcode = buf[1] & 0x7F;
 	pcp_msg_info.lifetime = u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
-	copy_from_slice(&mut pcp_msg_info.ext_ip, &buf[8..24]);
-	pcp_msg_info.mapped_ip = pcp_msg_info.ext_ip;
+	copy_from_slice(&mut pcp_msg_info.int_ip, &buf[8..24]);
+	pcp_msg_info.mapped_ip = pcp_msg_info.int_ip;
 
 	if pcp_msg_info.version > this_server_info.server_version {
 		pcp_msg_info.result_code = PCP_ERR_UNSUPP_VERSION;
@@ -290,8 +290,8 @@ fn parsePCPMAP_version2(buf: &[u8], pcp_msg_info: &mut pcp_info) {
 	pcp_msg_info.is_map_op = 1;
 	copy_from_slice(&mut pcp_msg_info.nonce, &buf[0..12]);
 	pcp_msg_info.protocol = buf[12];
-	pcp_msg_info.int_port = u16::from_be_bytes([buf[4], buf[5]]);
-	pcp_msg_info.ext_port = u16::from_be_bytes([buf[6], buf[7]]);
+	pcp_msg_info.int_port = u16::from_be_bytes([buf[16], buf[17]]);
+	pcp_msg_info.ext_port = u16::from_be_bytes([buf[18], buf[19]]);
 	copy_from_slice(&mut pcp_msg_info.ext_ip, &buf[20..36]);
 }
 #[cfg(feature = "pcp_peer")]
@@ -454,21 +454,16 @@ fn parsePCPOptions(pcp_buf: &[u8], remain: i32, pcp_msg_info: &mut pcp_info) {
 fn CheckExternalAddress(pcp_msg_info: &mut pcp_info) -> bool {
 	use crate::getifaddr::*;
 
-	let af = if (&pcp_msg_info.mapped_ip).is_ipv4_mapped() {
-		2 // AF_INET 
-	} else {
-		10 // AF_INET6
-	};
+	let ipv4 = pcp_msg_info.mapped_ip.is_ipv4_mapped();
 
-	// 设置是否为防火墙模式
-	pcp_msg_info.is_fw = af == 10;
+	pcp_msg_info.is_fw = !ipv4;
 
 	let external_addr = if pcp_msg_info.is_fw {
 		pcp_msg_info.mapped_ip
 	} else {
-		let mut addr = Ipv6Addr::UNSPECIFIED;
+		let addr;
 		let rt = pcp_msg_info.rt.as_ref().unwrap();
-
+		let op = global_option.get().unwrap();
 		// 处理外部IP地址
 		if let Some(use_ext_ip) = &rt.use_ext_ip_addr {
 			match use_ext_ip {
@@ -479,32 +474,27 @@ fn CheckExternalAddress(pcp_msg_info: &mut pcp_info) -> bool {
 					addr = v6addr.clone();
 				}
 			}
-		} else {
-			let op = global_option.get().unwrap();
-			if cfg!(feature = "ipv6") {
-				if af == 10 && op.ext_ifname != op.ext_ifname6 {
-					if op.ext_ifname6.is_empty() {
-						pcp_msg_info.result_code = PCP_ERR_NETWORK_FAILURE;
-						return false;
-					}
-					if let Some(v6addr) = getifaddr_in6(&op.ext_ifname6, true) {
-						addr = v6addr;
-					} else {
-						pcp_msg_info.result_code = PCP_ERR_NETWORK_FAILURE;
-						return false;
-					}
-				}
+		} else if cfg!(feature = "ipv6") && !ipv4 && op.ext_ifname != op.ext_ifname6 {
+			if op.ext_ifname6.is_empty() {
+				pcp_msg_info.result_code = PCP_ERR_NETWORK_FAILURE;
+				return false;
+			}
+			if let Some(v6addr) = getifaddr_in6(&op.ext_ifname6, true) {
+				addr = v6addr;
 			} else {
-				if op.ext_ifname.is_empty() {
-					pcp_msg_info.result_code = PCP_ERR_NETWORK_FAILURE;
-					return false;
-				}
-				if let Some(v6addr) = getifaddr_in6(&op.ext_ifname6, af == 10) {
-					addr = v6addr;
-				} else {
-					pcp_msg_info.result_code = PCP_ERR_NETWORK_FAILURE;
-					return false;
-				}
+				pcp_msg_info.result_code = PCP_ERR_NETWORK_FAILURE;
+				return false;
+			}
+		} else {
+			if op.ext_ifname.is_empty() {
+				pcp_msg_info.result_code = PCP_ERR_NETWORK_FAILURE;
+				return false;
+			}
+			if let Some(v6addr) = getifaddr_in6(&op.ext_ifname6, !ipv4) {
+				addr = v6addr;
+			} else {
+				pcp_msg_info.result_code = PCP_ERR_NETWORK_FAILURE;
+				return false;
 			}
 		}
 		addr
@@ -512,7 +502,7 @@ fn CheckExternalAddress(pcp_msg_info: &mut pcp_info) -> bool {
 
 	// 检查外部IP是否为未指定地址
 	if pcp_msg_info.ext_ip == Ipv6Addr::UNSPECIFIED
-		|| ((&pcp_msg_info.ext_ip).is_ipv4_mapped() && pcp_msg_info.ext_ip.segments()[3] == 0)
+		|| (pcp_msg_info.ext_ip.is_ipv4_mapped() && pcp_msg_info.ext_ip.segments()[3] == 0)
 	{
 		// 使用实际的外部地址
 		pcp_msg_info.ext_ip = external_addr;
@@ -606,16 +596,16 @@ fn CreatePCPMap_NAT(pcp_msg_info: &mut pcp_info) -> i32 {
 
 		if let Some(entry) = rt
 			.nat_impl
-			.get_redirect_rule(|x| x.dport == pcp_msg_info.ext_port && x.proto == pcp_msg_info.protocol)
+			.get_redirect_rule(|x| x.eport == pcp_msg_info.ext_port && x.proto == pcp_msg_info.protocol)
 		{
-			if pcp_msg_info.mapped_ip.to_ipv4_mapped().unwrap() != entry.saddr || pcp_msg_info.int_port != entry.sport {
+			if pcp_msg_info.mapped_ip.to_ipv4_mapped().unwrap() != entry.eaddr || pcp_msg_info.int_port != entry.eport {
 				if pcp_msg_info.pfailure_present != 0 {
 					return PCP_ERR_CANNOT_PROVIDE_EXTERNAL as i32;
 				}
 			} else {
 				info!(
 					"port {} {} already redirected to {}:{}, replacing",
-					pcp_msg_info.ext_port, pcp_msg_info.protocol, entry.saddr, entry.sport
+					pcp_msg_info.ext_port, pcp_msg_info.protocol, entry.eaddr, entry.eport
 				);
 				if rt.nat_impl.delete_redirect(&op.ext_ifname, entry.index) == 0 {
 					break;
@@ -631,22 +621,21 @@ fn CreatePCPMap_NAT(pcp_msg_info: &mut pcp_info) -> i32 {
 			break;
 		}
 	}
-	let st = pcp_msg_info.desc.as_deref();
-	let empty = "".to_string();
-	let s = st.unwrap_or(&empty).as_str();
-	let rto = mem::replace(&mut pcp_msg_info.rt, None);
-	let rt = rto.unwrap();
-	let r = upnp_redirect_internal(
-		rt,
-		None,
-		pcp_msg_info.int_ip.to_ipv4().unwrap(),
-		pcp_msg_info.ext_port,
-		pcp_msg_info.int_port,
-		pcp_msg_info.protocol,
-		Some(s),
-		timestamp,
-	);
-	pcp_msg_info.rt = Some(rt);
+
+	// let rto = mem::replace(&mut pcp_msg_info.rt, None);
+	// let rt = rto.unwrap();
+	let rt = pcp_msg_info.rt.as_mut().unwrap();
+	let entry = MapEntry {
+		iaddr: pcp_msg_info.int_ip.to_ipv4().unwrap(),
+		eport: pcp_msg_info.ext_port,
+		iport: pcp_msg_info.int_port,
+		proto: pcp_msg_info.protocol,
+		desc: pcp_msg_info.desc.clone(),
+		timestamp: timestamp as _,
+		..Default::default()
+	};
+	let r = upnp_redirect_internal(op, rt, &entry);
+	// pcp_msg_info.rt = Some(rt);
 
 	if r < 0 {
 		return PCP_ERR_NO_RESOURCES as i32;
@@ -654,18 +643,15 @@ fn CreatePCPMap_NAT(pcp_msg_info: &mut pcp_info) -> i32 {
 	PCP_SUCCESS as i32
 }
 fn CreatePCPMap_FW(pcp_msg_info: &mut pcp_info) -> i32 {
-	let mut uid: u16 = 0;
 	let r: i32;
 
-	let rt = pcp_msg_info.rt.as_mut().unwrap();
-
-	match upnp_find_inboundpinhole(&mut rt.nat_impl, |x| {
+	let _rt = pcp_msg_info.rt.as_mut().unwrap();
+	#[cfg(all(feature = "ipv6", feature = "pcp"))]
+	match upnp_find_inboundpinhole(&mut _rt.nat_impl, |x| {
 		x.iaddr == pcp_msg_info.int_ip && pcp_msg_info.int_port == x.iport && pcp_msg_info.protocol == x.proto
 	}) {
 		Some(entry) => {
-			if Some(entry.desc.as_ref().map(|x| x.as_str()).unwrap_or_default())
-				!= pcp_msg_info.desc.as_ref().map(|x| x.as_str())
-			{
+			if entry.desc != pcp_msg_info.desc {
 				// nonce不匹配
 				error!(
 					"Unauthorized to update pinhole : \"{}\" != \"{}\"",
@@ -684,22 +670,21 @@ fn CreatePCPMap_FW(pcp_msg_info: &mut pcp_info) -> i32 {
 			);
 			let index = entry.index;
 			let _ = entry;
-			r = upnp_update_inboundpinhole(&mut rt.nat_impl, index as u16, pcp_msg_info.lifetime);
+			r = upnp_update_inboundpinhole(&mut _rt.nat_impl, index as u16, pcp_msg_info.lifetime);
 			(if r >= 0 { PCP_SUCCESS } else { PCP_ERR_NO_RESOURCES }) as _
 		}
 		None => {
-			let desc = pcp_msg_info.desc.as_deref().unwrap_or("");
-			r = upnp_add_inboundpinhole(
-				&mut rt.nat_impl,
-				None, // raddr
-				0,    // rport
-				pcp_msg_info.mapped_ip,
-				pcp_msg_info.int_port,
-				pcp_msg_info.protocol,
-				Some(desc),
-				pcp_msg_info.lifetime,
-				&mut uid,
-			);
+			let mut uid: u16 = 0;
+			let pinhole = PinholeEntry {
+				iport: pcp_msg_info.int_port,
+				proto: pcp_msg_info.protocol,
+				iaddr: pcp_msg_info.mapped_ip,
+				desc: pcp_msg_info.desc.clone(),
+				timestamp: upnp_time().as_secs() + pcp_msg_info.lifetime as u64,
+				..Default::default()
+			};
+			let op = global_option.get().unwrap();
+			r = upnp_add_inboundpinhole(op, &mut _rt.nat_impl, &pinhole, &mut uid);
 
 			if r < 0 {
 				return 8; // PCP_ERR_NO_RESOURCES
@@ -709,6 +694,8 @@ fn CreatePCPMap_FW(pcp_msg_info: &mut pcp_info) -> i32 {
 			0 // PCP_SUCCESS
 		}
 	}
+	#[cfg(not(all(feature = "ipv6", feature = "pcp")))]
+	PCP_ERR_NO_RESOURCES
 }
 fn CreatePCPMap(pcp_msg_info: &mut pcp_info) {
 	let r = if pcp_msg_info.is_fw {
@@ -735,7 +722,7 @@ fn DeletePCPMap(pcp_msg_info: &mut pcp_info) {
 	let iport: u16 = pcp_msg_info.int_port;
 	let proto: u8 = pcp_msg_info.protocol;
 	let mut r: i32 = -1;
-	let eport2: u16 = 0;
+	let mut eport2: u16 = 0;
 
 	debug!(
 		"is_fw={} addr={} iport={} proto={}",
@@ -746,21 +733,20 @@ fn DeletePCPMap(pcp_msg_info: &mut pcp_info) {
 		// let mut index = 0;
 
 		if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| {
-			x.saddr == pcp_msg_info.int_ip.to_ipv4().unwrap()
+			x.iaddr == pcp_msg_info.int_ip.to_ipv4().unwrap()
 				&& x.proto == pcp_msg_info.protocol
-				&& (x.sport == pcp_msg_info.int_port || x.sport == 0)
+				&& (x.iport == iport || iport == 0)
 		}) {
-			if let Some(desc) = pcp_msg_info.desc.as_ref() {
-				if entry.desc.is_some() && entry.desc.as_ref().unwrap().as_ref() != desc.as_str() {
-					pcp_msg_info.result_code = PCP_ERR_NOT_AUTHORIZED;
-					error!(
-						"Unauthorized to remove PCP mapping internal port {}, protocol {}",
-						iport, pcp_msg_info.protocol
-					);
-					return;
-				} else {
-					r = _upnp_delete_redir(rt, pcp_msg_info.ext_port, pcp_msg_info.protocol);
-				}
+			eport2 = entry.eport;
+			if entry.desc != pcp_msg_info.desc {
+				pcp_msg_info.result_code = PCP_ERR_NOT_AUTHORIZED;
+				error!(
+					"Unauthorized to remove PCP mapping internal port {}, protocol {}",
+					iport, pcp_msg_info.protocol
+				);
+				return;
+			} else {
+				r = _upnp_delete_redir(rt, entry.eport, pcp_msg_info.protocol);
 			}
 		}
 	} else {
@@ -782,7 +768,7 @@ fn DeletePCPMap(pcp_msg_info: &mut pcp_info) {
 			return;
 		}
 		let old_entry = old_entry.unwrap();
-		if old_entry.desc.as_ref().map(|x| x.as_str()) != pcp_msg_info.desc.as_ref().map(|x| x.as_str()) {
+		if old_entry.desc != pcp_msg_info.desc {
 			pcp_msg_info.result_code = PCP_ERR_NOT_AUTHORIZED;
 			error!(
 				"Unauthorized to remove PCP mapping internal port {}, protocol {}",
@@ -856,7 +842,7 @@ fn ValidatePCPMsg(pcp_msg_info: &mut pcp_info) -> i32 {
 		}
 	}
 
-	if CheckExternalAddress(pcp_msg_info) {
+	if !CheckExternalAddress(pcp_msg_info) {
 		return 0;
 	}
 
@@ -873,15 +859,150 @@ fn ValidatePCPMsg(pcp_msg_info: &mut pcp_info) -> i32 {
 
 	1
 }
+#[cfg(feature = "pcp_peer")]
+fn CreatePCPPeer_NAT(p: &mut pcp_info) -> i32 {
+	let rt = p.rt.as_mut().unwrap();
+	let proto = p.protocol;
+	let mut eport = p.ext_port;
 
-fn CreatePCPPeer_NAT(_pcp_msg_info: &mut pcp_info) -> i32 {
-	0
+	let i_sockaddr = SocketAddr::new(p.mapped_ip.into(), p.int_port);
+	let peer_sockaddr = SocketAddr::new(p.peer_ip.into(), p.peer_port);
+	// let ext_sockaddr = SocketAddr::new(p.ext_ip.into(), eport);
+
+	let conn = os::get_nat_ext_addr(Some(i_sockaddr), Some(peer_sockaddr), proto);
+
+	let op = global_option.get().unwrap();
+	let mut ext_if = &op.ext_ifname;
+	#[cfg(feature = "ipv6")]
+	if let Some(ext_addr) = conn {
+		eport = ext_addr.port();
+		if ext_addr.is_ipv6() {
+			ext_if = &op.ext_ifname6;
+		}
+	}
+	if eport == 0 {
+		eport = p.int_port;
+	}
+	let mut entry = MapEntry {
+		raddr: p.peer_ip.to_ipv4_mapped().unwrap(),
+		rport: p.peer_port,
+		eaddr: p.ext_ip.to_ipv4_mapped().unwrap(),
+		eport: eport,
+		iaddr: p.int_ip.to_ipv4_mapped().unwrap(),
+		iport: p.int_port,
+		proto,
+		desc: p.desc.clone(),
+		..Default::default()
+	};
+	#[cfg(feature = "pcp_flowp")]
+	if p.flowp_present != 0 && p.dscp_up != 0 {
+		entry.dscp = p.dscp_up;
+		if rt.nat_impl.add_peer_dscp_rule(ext_if, &entry) < 0 {
+			error!(
+				"PCP: failed to add flowp upstream mapping {}:{}->{}:{} '{}'",
+				p.mapped_ip,
+				p.int_port,
+				p.peer_ip,
+				p.peer_port,
+				p.desc.as_deref().unwrap_or_default()
+			);
+			return PCP_ERR_NO_RESOURCES as _;
+		}
+	}
+	#[cfg(feature = "pcp_flowp")]
+	if p.flowp_present != 0 && p.dscp_down != 0 {
+		entry.dscp = p.dscp_down;
+		if rt.nat_impl.add_peer_dscp_rule(ext_if, &entry) < 0 {
+			error!(
+				"PCP: failed to add flowp downstream mapping {}:{}->{}:{} '{}'",
+				p.mapped_ip,
+				p.int_port,
+				p.peer_ip,
+				p.peer_port,
+				p.desc.as_deref().unwrap_or_default()
+			);
+			p.result_code = PCP_ERR_NO_RESOURCES;
+			return PCP_ERR_NO_RESOURCES as _;
+		}
+	}
+
+	let r = rt.nat_impl.add_peer_redirect_rule(ext_if, &entry);
+	if r < 0 {
+		return PCP_ERR_NO_RESOURCES as _;
+	}
+	p.ext_port = eport;
+	PCP_SUCCESS as _
 }
-fn CreatePCPPeer(_pcp_msg_info: &mut pcp_info) -> i32 {
-	0
+#[cfg(feature = "pcp_peer")]
+fn CreatePCPPeer(p: &mut pcp_info) {
+	let r = if p.is_fw {
+		PCP_ERR_UNSUPP_OPCODE
+	} else {
+		CreatePCPPeer_NAT(p) as u8
+	};
+	p.result_code = r;
+
+	log!(
+		if r == PCP_SUCCESS { log::LOG_INFO } else { log::LOG_ERR },
+		"PCP PEER: {} peer mapping {} {}:{}({})->{}:{} '{}'",
+		if r == PCP_SUCCESS { "added" } else { "failed to add" },
+		proto_itoa(p.protocol),
+		p.mapped_ip,
+		p.int_port,
+		p.ext_port,
+		p.peer_ip,
+		p.peer_port,
+		p.desc.as_deref().unwrap_or_default()
+	)
 }
-fn DeletePCPPeer(_pcp_msg_info: &mut pcp_info) -> i32 {
-	0
+#[cfg(feature = "pcp_peer")]
+fn DeletePCPPeer(p: &mut pcp_info) {
+	if p.is_fw {
+		p.result_code = PCP_ERR_UNSUPP_OPCODE;
+		return;
+	}
+
+	let rhost = p.peer_ip.to_ipv4_mapped().unwrap();
+	let iaddr = p.mapped_ip.to_ipv4_mapped().unwrap();
+
+	let rt = p.rt.as_mut().unwrap();
+	let op = global_option.get().unwrap();
+	let mut eport = 0;
+	if let Some(iter) = rt.nat_impl.get_iter(&op.ext_ifname, RuleTable::Peer) {
+		for entry in iter {
+			if entry.iaddr == iaddr
+				&& entry.raddr == rhost
+				&& entry.proto == p.protocol
+				&& entry.desc == p.desc
+				&& entry.iport == p.int_port
+				&& entry.rport == p.peer_port
+			{
+				eport = entry.eport;
+			}
+		}
+	}
+	let r = if eport != 0 {
+		let ret = _upnp_delete_redir(rt, eport, p.protocol);
+		if ret < 0 {
+			error!("PCP PEER: failed to remove peer mapping");
+		} else {
+			info!(
+				"PCP PEER: {} port {} peer mapping removed",
+				proto_itoa(p.protocol),
+				eport
+			);
+		}
+		ret
+	} else {
+		-1
+	};
+	if r == -1 {
+		error!(
+			"PCP PEER: Failed to find PCP mapping internal port {}, protocol {}",
+			p.int_port,
+			proto_itoa(p.protocol)
+		);
+	}
 }
 
 fn getPCPOpCodeStr(p0: u8) -> &'static str {
@@ -898,7 +1019,7 @@ fn getPCPOpCodeStr(p0: u8) -> &'static str {
 fn get_dscp_value(pcp_info: &mut pcp_info) {
 	let op = global_option.get().unwrap();
 	for dscp in &op.dscp_value {
-		if pcp_info.app_name == dscp.app_name
+		if pcp_info.app_name.as_str() == dscp.app_name.as_str()
 			&& pcp_info.delay_tolerance == dscp.delay
 			&& pcp_info.loss_tolerance == dscp.loss
 			&& pcp_info.jitter_tolerance == dscp.jitter
@@ -1045,6 +1166,52 @@ fn processPCPRequest(req: &[u8], pcp_msg_info: &mut pcp_info) -> i32 {
 					error!("PCP: Invalid PCP v2 MAP message.");
 					return pcp_msg_info.result_code as i32;
 				}
+			}
+			#[cfg(feature = "pcp_peer")]
+			PCP_OPCODE_PEER => {
+				remaining_size -= PCP_PEER_V2_SIZE as i32;
+				if remaining_size < 0 {
+					pcp_msg_info.result_code = PCP_ERR_MALFORMED_REQUEST;
+					return pcp_msg_info.result_code as i32;
+				}
+
+				parsePCPPEER_version2(req, pcp_msg_info);
+
+				req = &req[PCP_PEER_V2_SIZE as usize..];
+
+				parsePCPOptions(req, remaining_size, pcp_msg_info);
+
+				if (ValidatePCPMsg(pcp_msg_info)) != 0 {
+					if pcp_msg_info.lifetime == 0 {
+						DeletePCPPeer(pcp_msg_info);
+					} else {
+						CreatePCPPeer(pcp_msg_info);
+					}
+				} else {
+					error!("PCP: Invalid PCP v1 PEER message.");
+					return pcp_msg_info.result_code as i32;
+				}
+			}
+			#[cfg(feature = "pcp_sadscp")]
+			PCP_OPCODE_SADSCP => {
+				remaining_size -= PCP_SADSCP_REQ_SIZE as i32;
+				if remaining_size < 0 {
+					pcp_msg_info.result_code = PCP_ERR_MALFORMED_REQUEST;
+					return pcp_msg_info.result_code as i32;
+				}
+				remaining_size -= req[13] as i32;
+				if remaining_size < 0 {
+					pcp_msg_info.result_code = PCP_ERR_MALFORMED_REQUEST;
+					return pcp_msg_info.result_code as i32;
+				}
+				parseSADSCP(req, pcp_msg_info);
+
+				if pcp_msg_info.result_code != 0 {
+					return pcp_msg_info.result_code as i32;
+				}
+				// req = &req[PCP_SADSCP_REQ_SIZE as usize + pcp_msg_info.app_name.len()..];
+
+				get_dscp_value(pcp_msg_info);
 			}
 			_ => {
 				pcp_msg_info.result_code = PCP_ERR_UNSUPP_OPCODE;

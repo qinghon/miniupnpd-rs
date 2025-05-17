@@ -1,12 +1,12 @@
 use super::nftnlrdr_misc::{
-	mnl_socket, rule_chain_type, rule_del_handle, rule_set_dnat, rule_set_filter, rule_set_filter6, rule_t,
+	rule_chain_type, rule_del_handle, rule_set_dnat, rule_set_filter, rule_set_filter6, rule_t,
 };
+use crate::linux::netfilter::MnlSocket;
 use crate::*;
-use crate::{Backend, FilterEntry, PinholeEntry, RuleTable};
+use crate::{Backend, MapEntry, PinholeEntry, RuleTable};
 use libc::{ENOMEM, NFPROTO_INET, NFT_MSG_DELRULE, NFT_MSG_NEWRULE, NFT_NAT_DNAT, NFT_NAT_SNAT};
 use std::ffi::{CStr, CString};
 use std::net::Ipv4Addr;
-use std::ptr;
 use std::str::FromStr;
 
 use libc::{NFPROTO_IPV4, NFPROTO_IPV6};
@@ -26,7 +26,7 @@ const def_nft_postrouting_chain: &CStr = c"postrouting_miniupnpd";
 const def_nft_forward_chain: &CStr = c"miniupnpd";
 
 pub struct nftable {
-	pub(super) mnl_sock: *mut mnl_socket,
+	pub(super) mnl_sock: Option<MnlSocket>,
 	pub(super) mnl_portid: u32,
 	pub(super) mnl_seq: u32,
 
@@ -36,9 +36,9 @@ pub struct nftable {
 	pub(super) nft_postrouting_chain: CString,
 	pub(super) nft_forward_chain: CString,
 
-	pub(super) nft_nat_family: i32,
-	pub(super) nft_ipv4_family: i32,
-	pub(super) nft_ipv6_family: i32,
+	pub(super) nft_nat_family: u8,
+	pub(super) nft_ipv4_family: u8,
+	pub(super) nft_ipv6_family: u8,
 
 	pub(super) filter_rule: Vec<rule_t>,
 	pub(super) redirect_rule: Vec<rule_t>,
@@ -56,12 +56,12 @@ use crate::netfilter_nft::nftpinhole::{Nftable6Iter, parse_pinhole_desc};
 use crate::upnputils::upnp_time;
 use rdr_name_type::*;
 
-type FillFn = fn(&nftable, &mut FilterEntry, &rule_t);
+type FillFn = fn(&nftable, &mut MapEntry, &rule_t);
 
 struct NftableIter<'a> {
 	rule: Box<dyn Iterator<Item = &'a rule_t> + 'a>,
 	backend: &'a nftable,
-	entry: FilterEntry,
+	entry: MapEntry,
 	f: FillFn,
 }
 impl<'a> NftableIter<'a> {
@@ -75,38 +75,49 @@ impl<'a> NftableIter<'a> {
 	}
 }
 impl<'a> Iterator for NftableIter<'a> {
-	type Item = &'a FilterEntry;
+	type Item = &'a MapEntry;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let rule = self.rule.next()?;
 		let index = self.entry.index;
-		self.entry = FilterEntry::default();
+		self.entry = MapEntry::default();
 		self.entry.index = index + 1;
 		self.entry.proto = rule.proto;
 		self.entry.packets = rule.packets;
 		self.entry.bytes = rule.bytes;
 
 		let f = self.f;
-		f(&self.backend, &mut self.entry, &rule);
+		f(self.backend, &mut self.entry, &rule);
 
-		Some(unsafe { &*((&self.entry) as *const FilterEntry) })
+		Some(unsafe { &*((&self.entry) as *const MapEntry) })
 	}
 }
 
-fn fill_entry_redirect(n: &nftable, entry: &mut FilterEntry, r: &rule_t) {
-	entry.sport = r.dport;
-	entry.daddr = r.nat_addr;
+
+
+fn fill_entry_redirect(n: &nftable, entry: &mut MapEntry, r: &rule_t) {
+	entry.eport = r.dport;
+	entry.iaddr = r.nat_addr;
 	entry.desc = Some(r.desc.clone());
-	entry.dport = r.nat_port;
-	if let Some(tn) = n.timestamp_list.iter().find(|t| t.eport == entry.sport && entry.proto == r.proto) {
+	entry.iport = r.nat_port;
+	if let Some(tn) = n.timestamp_list.iter().find(|t| t.eport == entry.eport && entry.proto == r.proto) {
 		entry.timestamp = tn.timestamp as _;
 	}
 }
-fn fill_entry_filter(_n: &nftable, entry: &mut FilterEntry, r: &rule_t) {
-	entry.dport = r.dport;
-	entry.daddr = r.daddr;
-	entry.saddr = r.saddr;
-	entry.sport = r.sport;
+fn fill_entry_filter(_n: &nftable, entry: &mut MapEntry, r: &rule_t) {
+	entry.iport = r.dport;
+	entry.iaddr = r.daddr;
+	entry.eaddr = r.saddr;
+	entry.eport = r.sport;
+}
+fn fill_entry_peer(_n: &nftable, entry: &mut MapEntry, r: &rule_t) {
+	entry.eport = r.nat_port;
+	entry.iaddr = r.daddr;
+	entry.iport = r.dport;
+	entry.raddr = r.saddr;
+	entry.rport = r.sport;
+	entry.desc = Some(r.desc.clone())
+
 }
 
 impl Backend for nftable {
@@ -117,10 +128,10 @@ impl Backend for nftable {
 			nft_prerouting_chain: def_nft_prerouting_chain.into(),
 			nft_postrouting_chain: def_nft_postrouting_chain.into(),
 			nft_forward_chain: def_nft_forward_chain.into(),
-			nft_nat_family: NFPROTO_INET,
-			nft_ipv4_family: NFPROTO_INET,
-			nft_ipv6_family: NFPROTO_INET,
-			mnl_sock: ptr::null_mut(),
+			nft_nat_family: NFPROTO_INET as _,
+			nft_ipv4_family: NFPROTO_INET as _,
+			nft_ipv6_family: NFPROTO_INET as _,
+			mnl_sock: None,
 			mnl_portid: 0,
 			mnl_seq: 0,
 			filter_rule: vec![],
@@ -148,9 +159,9 @@ impl Backend for nftable {
 		self.redirect_rule.len() as _
 	}
 
-	fn get_redirect_rule<P>(&self, filter: P) -> Option<FilterEntry>
+	fn get_redirect_rule<P>(&self, filter: P) -> Option<MapEntry>
 	where
-		P: Fn(&FilterEntry) -> bool,
+		P: Fn(&MapEntry) -> bool,
 	{
 		let if_name = IfName::default();
 		for x in self.get_iter(&if_name, RuleTable::Redirect)? {
@@ -165,7 +176,7 @@ impl Backend for nftable {
 		&'a self,
 		_ifname: &IfName,
 		table: RuleTable,
-	) -> Option<Box<dyn Iterator<Item = &'a FilterEntry> + 'a>> {
+	) -> Option<Box<dyn Iterator<Item = &'a MapEntry> + 'a>> {
 		match table {
 			RuleTable::Redirect => Some(Box::new(NftableIter::new(
 				self,
@@ -173,7 +184,14 @@ impl Backend for nftable {
 				fill_entry_redirect,
 			))),
 			RuleTable::Filter => Some(Box::new(NftableIter::new(self, RULE_CHAIN_FILTER, fill_entry_filter))),
+			RuleTable::Peer => Some(Box::new(NftableIter::new(self, RULE_CHAIN_PEER, fill_entry_peer))),
 		}
+	}
+
+	fn reflush_rule_cache(&mut self) {
+		self.refresh_nft_cache_(RULE_CHAIN_FILTER);
+		self.refresh_nft_cache_(RULE_CHAIN_REDIRECT);
+		self.refresh_nft_cache_(RULE_CHAIN_PEER);
 	}
 
 	fn delete_redirect(&mut self, ifname: &IfName, redirect_index: u32) -> i32 {
@@ -184,7 +202,7 @@ impl Backend for nftable {
 			if let Some(entry) = iter.find(|entry| entry.index == redirect_index) {
 				self.filter_rule
 					.iter()
-					.find(|r| r.dport == entry.dport && r.proto == entry.proto && r.daddr == entry.daddr)
+					.find(|r| r.dport == entry.iport && r.proto == entry.proto && r.daddr == entry.iaddr)
 			} else {
 				None
 			}
@@ -227,24 +245,29 @@ impl Backend for nftable {
 		timestamp: u32,
 	) -> i32 {
 		// let iter = ;
-		let entry = self.get_iter(ifname, RuleTable::Redirect).unwrap().find(|e| e.sport == eport && e.proto == proto);
+		let entry = self.get_iter(ifname, RuleTable::Redirect).unwrap().find(|e| e.eport == eport && e.proto == proto);
 		if entry.is_none() {
 			return -1;
 		}
 		let entry = entry.unwrap();
-		let iaddr = entry.daddr;
-		let raddr = if entry.saddr != Ipv4Addr::UNSPECIFIED {
-			Some(entry.saddr)
-		} else {
-			None
-		};
+		let iaddr = entry.iaddr;
+		let raddr = entry.eaddr;
 		let _ = entry;
 		self.delete_redirect_and_filter_rules(ifname, eport, proto);
-
-		if self.add_redirect_rule2(ifname, raddr, iaddr, eport, iport, proto, Some(desc), timestamp) < 0 {
+		let map_entry = MapEntry {
+			raddr,
+			iaddr,
+			eport,
+			iport,
+			proto,
+			desc: Some(Rc::from(desc)),
+			timestamp: timestamp as _,
+			..Default::default()
+		};
+		if self.add_redirect_rule(ifname, &map_entry) < 0 {
 			return -1;
 		}
-		if self.add_filter_rule2(ifname, raddr, iaddr, eport, iport, proto, Some(desc)) < 0 {
+		if self.add_filter_rule(ifname, &map_entry) < 0 {
 			return -1;
 		}
 
@@ -263,7 +286,6 @@ impl Backend for nftable {
 		self.add_timestamp_entry(eport, proto, timestamp);
 		0
 	}
-
 	fn set_rdr_name(&mut self, param: rdr_name_type, name: &str) -> i32 {
 		if name.is_empty() || name.len() > 30 {
 			error!("invalid string argument '{}'", name);
@@ -279,9 +301,9 @@ impl Backend for nftable {
 			RDR_FORWARD_CHAIN_NAME => self.nft_forward_chain = CString::from_str(name).unwrap(),
 			RDR_FAMILY_SPLIT => {
 				if name == "yes" {
-					self.nft_nat_family = NFPROTO_IPV4;
-					self.nft_ipv4_family = NFPROTO_IPV4;
-					self.nft_ipv6_family = NFPROTO_IPV6;
+					self.nft_nat_family = NFPROTO_IPV4 as _;
+					self.nft_ipv4_family = NFPROTO_IPV4 as _;
+					self.nft_ipv6_family = NFPROTO_IPV6 as _;
 					info!("using IPv4/IPv6 Table");
 				}
 			}
@@ -289,33 +311,25 @@ impl Backend for nftable {
 		0
 	}
 
-	fn add_redirect_rule2(
-		&mut self,
-		ifname: &IfName,
-		rhost: Option<Ipv4Addr>,
-		iaddr: Ipv4Addr,
-		eport: u16,
-		iport: u16,
-		proto: u8,
-		desc: Option<&str>,
-		timestamp: u32,
-	) -> i32 {
+	fn get_redir_chain_name(&self) -> &str {
+		self.nft_prerouting_chain.to_str().unwrap()
+	}
+
+	fn add_redirect_rule(&mut self, ifname: &IfName, entry: &MapEntry) -> i32 {
 		if let Some(r) = rule_set_dnat(
 			self.nft_nat_family as _,
 			&self.nft_nat_table,
 			&self.nft_prerouting_chain,
 			ifname,
-			proto,
-			rhost,
-			eport,
-			iaddr,
-			iport,
-			desc,
-			None,
+			entry,
 		) {
 			let ret = self.nft_send_rule(r, NFT_MSG_NEWRULE, RULE_CHAIN_REDIRECT);
 			if ret >= 0 {
-				self.timestamp_list.push(timestamp_entry { timestamp, eport, proto });
+				self.timestamp_list.push(timestamp_entry {
+					timestamp: entry.timestamp as _,
+					eport: entry.eport,
+					proto: entry.proto,
+				});
 				self.refresh_nft_cache_(RULE_CHAIN_REDIRECT);
 				0
 			} else {
@@ -326,29 +340,13 @@ impl Backend for nftable {
 		}
 	}
 
-	fn add_filter_rule2(
-		&mut self,
-		ifname: &IfName,
-		rhost: Option<Ipv4Addr>,
-		iaddr: Ipv4Addr,
-		eport: u16,
-		iport: u16,
-		proto: u8,
-		desc: Option<&str>,
-	) -> i32 {
+	fn add_filter_rule(&mut self, ifname: &IfName, entry: &MapEntry) -> i32 {
 		if let Some(r) = rule_set_filter(
 			&self.nft_table,
 			&self.nft_forward_chain,
 			self.nft_nat_family as u8,
-			&ifname,
-			proto,
-			rhost,
-			iaddr,
-			eport,
-			iport,
-			0,
-			desc,
-			None,
+			ifname,
+			entry,
 		) {
 			self.nft_send_rule(r, NFT_MSG_NEWRULE, RULE_CHAIN_FILTER)
 		} else {
@@ -399,9 +397,11 @@ impl Backend for nftable {
 		if let Some(rule) = rule {
 			iaddr = rule.nat_addr;
 			iport = rule.nat_port;
+			let handle = rule.handle;
 			if let Some(r) = rule_del_handle(rule, self.nft_nat_family) {
 				let _ = rule;
 				self.nft_send_rule(r, NFT_MSG_DELRULE, RULE_CHAIN_REDIRECT);
+				self.redirect_rule.retain(|x| x.handle != handle);
 			}
 		}
 		if iaddr != Ipv4Addr::UNSPECIFIED && iport != 0 {
@@ -411,11 +411,14 @@ impl Backend for nftable {
 				.filter_rule
 				.iter()
 				.find(|r| r.dport == iport && r.daddr == iaddr && r.proto == proto && r.type_0 == RULE_FILTER);
+
 			if rule.is_some()
 				&& let Some(r) = rule_del_handle(rule.unwrap(), self.nft_nat_family)
 			{
+				let handle = rule.unwrap().handle;
 				let _ = rule;
 				self.nft_send_rule(r, NFT_MSG_DELRULE, RULE_CHAIN_FILTER);
+				self.filter_rule.retain(|x| x.handle != handle);
 			}
 		} else {
 			warn!(
@@ -434,9 +437,11 @@ impl Backend for nftable {
 		if let Some(r) = rule {
 			iaddr = r.daddr;
 			iport = r.dport;
+			let handle = r.handle;
 			if let Some(r) = rule_del_handle(r, self.nft_nat_family) {
 				let _ = rule;
 				self.nft_send_rule(r, NFT_MSG_DELRULE, RULE_CHAIN_PEER);
+				self.peer_rule.retain(|x| x.handle != handle);
 			}
 		}
 		if iaddr != Ipv4Addr::UNSPECIFIED && iport != 0 {
@@ -446,48 +451,39 @@ impl Backend for nftable {
 				self.filter_rule.iter().find(|r| r.dport == iport && r.daddr == iaddr && r.type_0 == RULE_FILTER);
 
 			if let Some(r) = rule_del_handle(rule.unwrap(), self.nft_nat_family) {
+				let handle = rule.unwrap().handle;
 				let _ = rule;
 				self.nft_send_rule(r, NFT_MSG_DELRULE, RULE_CHAIN_FILTER);
+				self.filter_rule.retain(|x| x.handle != handle);
 			}
 		}
 
 		0
 	}
 
-	fn get_pinhole_iter<'a>(&'a mut self) -> Option<Box<dyn Iterator<Item = &'a mut PinholeEntry> + 'a>> {
+	fn get_pinhole_iter<'a>(&'a mut self) -> Option<Box<dyn Iterator<Item = &'a PinholeEntry> + 'a>> {
 		self.refresh_nft_cache_(RULE_CHAIN_FILTER);
 
 		Some(Box::new(Nftable6Iter::new(self)))
 	}
 
-	fn add_pinhole(&mut self, ifname: &warp::IfName, _entry: &PinholeEntry) -> i32 {
+	fn add_pinhole(&mut self, ifname: &IfName, entry: &PinholeEntry) -> i32 {
 		let uid = self.next_uid;
 
-		let raddr = if _entry.eaddr == Ipv6Addr::UNSPECIFIED {
-			None
-		} else {
-			Some(&_entry.eaddr)
-		};
 		let desc = format!(
 			"pinhole-{} ts-{}: {}",
 			uid,
-			_entry.timestamp,
-			_entry.desc.as_ref().map(|x| x.as_str()).unwrap_or_default()
+			entry.timestamp,
+			entry.desc.as_deref().unwrap_or_default()
 		);
 
 		if let Some(r) = rule_set_filter6(
 			&self.nft_table,
 			&self.nft_forward_chain,
-			self.nft_ipv6_family as u8,
+			self.nft_ipv6_family,
 			&ifname,
-			_entry.proto,
-			raddr,
-			&_entry.iaddr,
-			0,
-			_entry.iport,
-			_entry.eport,
-			Some(desc.as_str()),
-			None,
+			&entry,
+			Some(desc.as_ref()),
 		) {
 			if self.nft_send_rule(r, NFT_MSG_NEWRULE, RULE_CHAIN_FILTER) < 0 {
 				return -1;
@@ -501,7 +497,7 @@ impl Backend for nftable {
 		-ENOMEM
 	}
 
-	fn update_pinhole(&mut self, uid: u16, _timestamp: u32) -> i32 {
+	fn update_pinhole(&mut self, uid: u16, timestamp: u32) -> i32 {
 		self.refresh_nft_cache_(RULE_CHAIN_FILTER);
 
 		let label_start = format!("pinhole-{}", uid);
@@ -524,30 +520,27 @@ impl Backend for nftable {
 		let comment = format!(
 			"pinhole-{} ts-{}: {}",
 			uid,
-			_timestamp,
+			timestamp,
 			rule.desc.as_str().split_ascii_whitespace().nth(2).unwrap_or_default()
 		);
 		let ifname = IfName::from_index(rule.ingress_ifidx);
 
-		let rhost = if rule.saddr6 == Ipv6Addr::UNSPECIFIED {
-			None
-		} else {
-			Some(&rule.saddr6)
+		let pinhole = PinholeEntry {
+			proto: rule.proto,
+			raddr: rule.saddr6,
+			iaddr: rule.daddr6,
+			iport: rule.dport,
+			rport: rule.sport,
+			..Default::default()
 		};
 
 		if let Some(r) = rule_set_filter6(
 			&self.nft_table,
 			&self.nft_forward_chain,
-			self.nft_ipv6_family as u8,
+			self.nft_ipv6_family,
 			&ifname.unwrap_or_default(),
-			rule.proto,
-			rhost,
-			&rule.daddr6,
-			0,
-			rule.dport,
-			rule.sport,
+			&pinhole,
 			Some(comment.as_str()),
-			None,
 		) {
 			let _ = rule;
 			if self.nft_send_rule(r, NFT_MSG_NEWRULE, RULE_CHAIN_FILTER) < 0 {
@@ -558,7 +551,6 @@ impl Backend for nftable {
 			-ENOMEM
 		}
 	}
-
 	fn delete_pinhole(&mut self, _uid: u16) -> i32 {
 		self.refresh_nft_cache_(RULE_CHAIN_FILTER);
 
@@ -633,9 +625,6 @@ impl Backend for nftable {
 		}
 
 		del_cnt
-	}
-	fn get_redir_chain_name(&self) -> &str {
-		self.nft_prerouting_chain.to_str().unwrap()
 	}
 }
 

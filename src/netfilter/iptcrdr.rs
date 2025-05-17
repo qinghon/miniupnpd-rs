@@ -37,7 +37,7 @@ use super::iptpinhole::*;
 use super::tiny_nf_nat::*;
 use crate::rdr_name_type::{self};
 use crate::upnputils::upnp_time;
-use crate::{Backend, FilterEntry, error};
+use crate::{Backend, MapEntry, error};
 use crate::{PinholeEntry, log};
 use crate::{RuleTable, TCP};
 use core::ffi;
@@ -52,7 +52,7 @@ const def_miniupnpd_nat_chain: &CStr = c"MINIUPNPD";
 const def_miniupnpd_nat_postrouting_chain: &CStr = c"MINIUPNPD-POSTROUTING";
 const def_miniupnpd_forward_chain: &CStr = c"MINIUPNPD";
 
-type FillFn = fn(&iptable, &mut FilterEntry, &ipt_entry, &xt_entry_match, &xt_entry_target);
+type FillFn = fn(&iptable, &mut MapEntry, &ipt_entry, &xt_entry_match, &xt_entry_target);
 
 pub struct iptable {
 	rdr_desc: Vec<rdr_desc>,
@@ -66,7 +66,7 @@ struct IptableIter<'a> {
 	handle: *mut xtc_handle,
 	chain: CString,
 	cur: *const ipt_entry,
-	entry: FilterEntry,
+	entry: MapEntry,
 	backend: &'a iptable,
 	index: u32,
 	filler: FillFn,
@@ -86,7 +86,7 @@ impl IptableIter<'_> {
 		Some(IptableIter {
 			handle: h,
 			chain: ch,
-			entry: FilterEntry::default(),
+			entry: MapEntry::default(),
 			cur: ptr::null_mut(),
 			backend: ipt,
 			index: 0,
@@ -95,9 +95,9 @@ impl IptableIter<'_> {
 	}
 }
 impl<'a> Iterator for IptableIter<'a> {
-	type Item = &'a FilterEntry;
+	type Item = &'a MapEntry;
 
-	fn next(&mut self) -> Option<&'a FilterEntry> {
+	fn next(&mut self) -> Option<&'a MapEntry> {
 		if self.handle.is_null() {
 			return None;
 		}
@@ -111,50 +111,21 @@ impl<'a> Iterator for IptableIter<'a> {
 			if e.is_null() {
 				return None;
 			}
-			self.entry = Default::default();
 			let entry_ref = &*e;
-			self.entry.proto = entry_ref.ip.proto as _;
-			// let proto = entry_ref.ip.proto as u8;
 			let match_ = e.add(1) as *const xt_entry_match;
 			let match_ref = &*match_;
-
-			// let eport = if match_ref.u.user.name[0..4] == *b"tcp\0" {
-			// 	let info = &*(match_.add(1) as *const xt_tcp);
-			// 	info.dpts[0]
-			// } else {
-			// 	let info = &*(match_.add(1) as *const xt_udp);
-			// 	info.dpts[0]
-			// };
 			let target = &*(e.byte_add(entry_ref.target_offset as usize) as *const xt_entry_target);
+			
 			let filler = self.filler;
+			self.entry = Default::default();
+			self.entry.proto = entry_ref.ip.proto as _;
 			self.cur = e;
 			self.entry.index = self.index;
+			self.entry.packets = entry_ref.counters.pcnt;
+			self.entry.bytes = entry_ref.counters.bcnt;
 			filler(self.backend, &mut self.entry, entry_ref, match_ref, target);
-			// let mr = target.add(1) as *const nf_nat_multi_range_compat;
-			// let mr_ref = &*mr;
-			// let iaddr = mr_ref.range[0].min_ip;
-			// let iport = u16::from_be(mr_ref.range[0].min.all);
-
-			// self.entry = FilterEntry {
-			// 	index: self.index,
-			// 	proto,
-			// 	sport: iport,
-			// 	dport: eport,
-			// 	saddr: entry_ref.ip.src,
-			// 	daddr: entry_ref.ip.dst,
-			// 	desc: String::new(),
-			// 	packets: entry_ref.counters.pcnt,
-			// 	bytes: entry_ref.counters.bcnt,
-			// 	timestamp: 0,
-			// 	..Default::default()
-			// };
-			// if let Some(desc) = self.backend.get_redirect_desc(eport, proto) {
-			// 	self.entry.desc.clear();
-			// 	self.entry.desc.push_str(desc.desc.as_str());
-			// 	self.entry.timestamp = desc.timestamp;
-			// }
 			self.index += 1;
-			Some(&*((&self.entry) as *const FilterEntry))
+			Some(&*((&self.entry) as *const MapEntry))
 		}
 	}
 	fn count(self) -> usize
@@ -183,6 +154,7 @@ pub(super) enum Target {
 	Dnat,
 	Masquerade,
 	Accept,
+	Dscp,
 }
 use crate::warp::{IfName, Ip4Addr};
 use Target::*;
@@ -192,11 +164,11 @@ impl iptable {
 		self.rdr_desc.iter().find(|r| r.proto == proto && r.eport == eport)
 	}
 
-	pub(super) fn get_entrys<P>(&self, table: &CStr, chain: &CStr, f: FillFn, filter: P) -> Vec<FilterEntry>
+	pub(super) fn get_entrys<P>(&self, table: &CStr, chain: &CStr, f: FillFn, filter: P) -> Vec<MapEntry>
 	where
-		P: Fn(&FilterEntry) -> bool,
+		P: Fn(&MapEntry) -> bool,
 	{
-		let mut entries: Vec<FilterEntry> = Vec::new();
+		let mut entries: Vec<MapEntry> = Vec::new();
 		let mut iter = IptableIter::new(self, table, chain, f);
 		if iter.is_none() {
 			return entries;
@@ -209,9 +181,9 @@ impl iptable {
 		entries
 	}
 
-	fn get_entry<P>(&self, table: &CStr, chain: &CStr, f: FillFn, filter: P) -> Option<FilterEntry>
+	fn get_entry<P>(&self, table: &CStr, chain: &CStr, f: FillFn, filter: P) -> Option<MapEntry>
 	where
-		P: Fn(&FilterEntry) -> bool,
+		P: Fn(&MapEntry) -> bool,
 	{
 		let mut iter = IptableIter::new(self, table, chain, f)?;
 		let entry = iter.find(|x| filter(x))?;
@@ -252,7 +224,7 @@ impl iptable {
 		&self,
 		table: &CStr,
 		chain: &CStr,
-		entry: &FilterEntry,
+		entry: &MapEntry,
 		target: Target,
 		caller: &'static str,
 		mut f: P,
@@ -314,9 +286,9 @@ impl Backend for iptable {
 		-1
 	}
 
-	fn get_redirect_rule<P>(&self, filter: P) -> Option<FilterEntry>
+	fn get_redirect_rule<P>(&self, filter: P) -> Option<MapEntry>
 	where
-		P: Fn(&FilterEntry) -> bool,
+		P: Fn(&MapEntry) -> bool,
 	{
 		self.get_entry(c"nat", &self.nat_chain, fill_from_redirect, filter)
 	}
@@ -325,21 +297,23 @@ impl Backend for iptable {
 		&'a self,
 		_ifname: &IfName,
 		table: RuleTable,
-	) -> Option<Box<dyn Iterator<Item = &'a FilterEntry> + 'a>> {
+	) -> Option<Box<dyn Iterator<Item = &'a MapEntry> + 'a>> {
 		let tb = match table {
-			RuleTable::Redirect => c"nat",
+			RuleTable::Redirect | RuleTable::Peer => c"nat",
 			RuleTable::Filter => c"filter",
 		};
+		let chain = match table {
+			RuleTable::Redirect => self.nat_chain.as_c_str(),
+			RuleTable::Filter => self.forward_chain.as_c_str(),
+			RuleTable::Peer => self.nat_postrouting_chain.as_c_str(),
+		};
+		let fill = match table {
+			RuleTable::Redirect => fill_from_redirect,
+			RuleTable::Filter => fill_from_filter,
+			RuleTable::Peer => fill_from_peer,
+		};
 
-		Some(Box::new(IptableIter::new(
-			self,
-			&tb,
-			&self.nat_chain,
-			match table {
-				RuleTable::Redirect => fill_from_redirect,
-				RuleTable::Filter => fill_from_filter,
-			},
-		)?))
+		Some(Box::new(IptableIter::new(self, tb, chain, fill)?))
 	}
 
 	fn delete_redirect(&mut self, _if_name: &IfName, redirect_index: u32) -> i32 {
@@ -348,10 +322,10 @@ impl Backend for iptable {
 
 	fn get_portmappings_in_range(&self, start: u16, end: u16, proto: u8) -> Vec<u16> {
 		Self::get_entrys(self, c"nat", &self.nat_chain, fill_from_redirect, |x| {
-			x.proto == proto && start <= x.dport && x.dport <= end
+			x.proto == proto && start <= x.iport && x.iport <= end
 		})
 		.iter()
-		.map(|x| x.dport)
+		.map(|x| x.iport)
 		.collect::<Vec<u16>>()
 	}
 
@@ -373,7 +347,7 @@ impl Backend for iptable {
 
 	fn update_portmapping_desc_timestamp(
 		&mut self,
-		ifname: &warp::IfName,
+		ifname: &IfName,
 		eport: u16,
 		proto: u8,
 		desc: &str,
@@ -415,31 +389,20 @@ impl Backend for iptable {
 		self.nat_chain.to_str().unwrap()
 	}
 
-	fn add_redirect_rule2(
-		&mut self,
-		_ifname: &IfName,
-		rhost: Option<Ipv4Addr>,
-		iaddr: Ipv4Addr,
-		eport: u16,
-		iport: u16,
-		proto: u8,
-		desc: Option<&str>,
-		timestamp: u32,
-	) -> i32 {
-		let entry = FilterEntry { proto, dport: eport, saddr: iaddr, sport: iport, desc: None, ..Default::default() };
+	fn add_redirect_rule(&mut self, _ifname: &IfName, entry: &MapEntry) -> i32 {
 		let mut r = 0;
-		r = self.add_entry(c"nat", &self.nat_chain, &entry, Dnat, "addnatrule", |e| {
-			if let Some(rhost) = rhost {
-				e.ip.src = Ip4Addr::from(rhost).into();
+		r = self.add_entry(c"nat", &self.nat_chain, entry, Dnat, "addnatrule", |e| {
+			if !entry.raddr.is_unspecified() {
+				e.ip.src = Ip4Addr::from(entry.raddr).into();
 				e.ip.smsk.s_addr = u32::MAX;
 			}
 		});
 		if r >= 0 {
 			self.add_redirect_desc(rdr_desc {
-				timestamp: timestamp as u64,
-				eport,
-				proto,
-				desc: desc.map(|x| Rc::from(x)),
+				timestamp: entry.timestamp,
+				eport: entry.eport,
+				proto: entry.proto,
+				desc: entry.desc.clone(),
 			});
 
 			r = self.add_entry(
@@ -449,43 +412,37 @@ impl Backend for iptable {
 				Masquerade,
 				"addmasqueraderule",
 				|e| {
-					if let Some(rhost) = rhost {
-						e.ip.dst = Ip4Addr::from(rhost).into();
+					if !entry.raddr.is_unspecified() {
+						e.ip.dst = Ip4Addr::from(entry.raddr).into();
 						e.ip.dmsk.s_addr = u32::MAX;
+					}
+					if !entry.iaddr.is_unspecified() {
+						e.ip.src = Ip4Addr::from(entry.iaddr).into();
+						e.ip.smsk.s_addr = u32::MAX;
 					}
 				},
 			);
 			if r < 0 {
-				notice!("add_redirect_rule2(): addmasqueraderule returned {}", r);
+				notice!("add_redirect_rule(): addmasqueraderule returned {}", r);
 			}
 		}
 		r
 	}
 
-	fn add_filter_rule2(
-		&mut self,
-		ifname: &IfName,
-		rhost: Option<Ipv4Addr>,
-		iaddr: Ipv4Addr,
-		eport: u16,
-		iport: u16,
-		proto: u8,
-		desc: Option<&str>,
-	) -> i32 {
-		let entry = FilterEntry { proto, saddr: iaddr, sport: iport, ..Default::default() };
+	fn add_filter_rule(&mut self, ifname: &IfName, entry: &MapEntry) -> i32 {
 		self.add_entry(c"filter", &self.forward_chain, &entry, Accept, "add_filter_rule", |e| {
-			if let Some(rhost) = rhost {
-				e.ip.dst = Ip4Addr::from(entry.saddr).into();
-				e.ip.dmsk.s_addr = u32::MAX;
-				e.ip.src = Ip4Addr::from(rhost).into();
+			if !entry.raddr.is_unspecified() {
+				e.ip.src = Ip4Addr::from(entry.raddr).into();
 				e.ip.smsk.s_addr = u32::MAX;
 			}
+			e.ip.dst = Ip4Addr::from(entry.iaddr).into();
+			e.ip.dmsk.s_addr = u32::MAX;
 		})
 	}
 
 	fn delete_filter_rule(&mut self, ifname: &IfName, lport: u16, proto: u8) -> i32 {
 		if let Some(e) = self.get_entry(c"filter", &self.forward_chain, fill_from_filter, |x| {
-			x.dport == lport && x.proto == proto
+			x.iport == lport && x.proto == proto
 		}) {
 			self.delete_filter(ifname, e.index)
 		} else {
@@ -498,14 +455,14 @@ impl Backend for iptable {
 	}
 
 	fn delete_redirect_and_filter_rules(&mut self, ifname: &IfName, eport: u16, proto: u8) -> i32 {
-		let redir_entry = self.get_redirect_rule(|x| x.dport == eport && x.proto == proto);
+		let redir_entry = self.get_redirect_rule(|x| x.eport == eport && x.proto == proto);
 		let r = if let Some(entry) = redir_entry {
 			let errno = self.delete_redirect(ifname, entry.index);
 			if errno != 0 {
 				return errno;
 			}
 			if let Some(forward_entry) = self.get_entry(c"filter", &self.forward_chain, fill_from_filter, |x| {
-				entry.saddr == x.saddr && entry.sport == x.sport && x.proto == proto
+				entry.eaddr == x.eaddr && entry.eport == x.eport && x.proto == proto
 			}) {
 				self.delete_entry(c"filter", &self.forward_chain, forward_entry.index)
 			} else {
@@ -518,14 +475,14 @@ impl Backend for iptable {
 			c"nat",
 			&self.nat_postrouting_chain,
 			fill_from_redirect_masquerade,
-			|x| x.proto == proto && x.dport == eport,
+			|x| x.proto == proto && x.eport == eport,
 		) {
 			let errno = self.delete_entry(c"nat", &self.nat_postrouting_chain, entry.index);
 			if errno != 0 {
 				return errno;
 			} else if let Some(mangle_entry) =
 				self.get_entry(c"mangle", &self.nat_chain, fill_from_redirect_masquerade, |x| {
-					x.proto == proto && x.sport == entry.sport && x.saddr == entry.saddr
+					x.proto == proto && x.eport == entry.eport && x.eaddr == entry.eaddr
 				}) {
 				self.delete_entry(c"mangle", &self.nat_chain, mangle_entry.index)
 			} else {
@@ -535,12 +492,12 @@ impl Backend for iptable {
 			0
 		};
 
-		self.rdr_desc.retain(|x| x.eport != eport && x.proto != proto);
+		self.rdr_desc.retain(|x| !(x.eport == eport && x.proto == proto));
 
 		r * r2
 	}
 
-	fn get_pinhole_iter<'a>(&'a mut self) -> Option<Box<dyn Iterator<Item = &'a mut PinholeEntry> + 'a>> {
+	fn get_pinhole_iter<'a>(&'a mut self) -> Option<Box<dyn Iterator<Item = &'a PinholeEntry> + 'a>> {
 		let iter = Ip6tableIter::new(self, c"filter", &self.forward_chain)?;
 		Some(Box::new(iter))
 	}
@@ -552,8 +509,8 @@ impl Backend for iptable {
 				e.ipv6.iniface[0..ifname.as_bytes().len()]
 					.copy_from_slice(unsafe { mem::transmute::<&[u8], &[c_char]>(ifname.as_bytes()) });
 			}
-			if entry.eaddr != Ipv6Addr::UNSPECIFIED {
-				e.ipv6.src = libc::in6_addr { s6_addr: entry.eaddr.octets() };
+			if entry.raddr != Ipv6Addr::UNSPECIFIED {
+				e.ipv6.src = libc::in6_addr { s6_addr: entry.raddr.octets() };
 				e.ipv6.smsk = libc::in6_addr { s6_addr: [0xff; 16] };
 			}
 		});
@@ -561,10 +518,10 @@ impl Backend for iptable {
 			return r;
 		}
 		self.pinhole_list.push(pinhole_t {
-			saddr: entry.eaddr,
+			saddr: entry.raddr,
 			daddr: entry.iaddr,
 			timestamp: entry.timestamp as _,
-			sport: entry.eport,
+			sport: entry.rport,
 			dport: entry.iport,
 			uid: self.uid,
 			proto: entry.proto,
@@ -602,9 +559,9 @@ impl Backend for iptable {
 		for entry in ip6_iter {
 			if entry.proto == p.proto
 				&& entry.iaddr == p.saddr
-				&& entry.eaddr == p.daddr
+				&& entry.raddr == p.daddr
 				&& entry.iport == p.sport
-				&& entry.eport == p.dport
+				&& entry.rport == p.dport
 			{
 				if handle.delete_num_entry(&self.forward_chain, entry.index as _) == 0 {
 					error!(
@@ -648,6 +605,54 @@ impl Backend for iptable {
 		*next_timestamp = min_ts;
 		del_num
 	}
+	fn add_peer_redirect_rule(&mut self, _ifname: &IfName, entry: &MapEntry) -> i32 {
+		let r = self.add_entry(
+			c"nat",
+			self.nat_postrouting_chain.as_c_str(),
+			entry,
+			Snat,
+			"addpeernatrule",
+			|e| {
+				if !entry.iaddr.is_unspecified() {
+					e.ip.src = Ip4Addr::from(entry.iaddr).into();
+					e.ip.smsk.s_addr = u32::MAX;
+				}
+				if !entry.raddr.is_unspecified() {
+					e.ip.dst = Ip4Addr::from(entry.raddr).into();
+					e.ip.dmsk.s_addr = u32::MAX;
+				}
+			},
+		);
+		if r < 0 {
+			return r;
+		}
+		self.add_redirect_desc(rdr_desc {
+			proto: entry.proto,
+			eport: entry.eport,
+			timestamp: entry.timestamp,
+			desc: entry.desc.clone(),
+		});
+		r
+	}
+	fn add_peer_dscp_rule(&mut self, _ifname: &IfName, entry: &MapEntry) -> i32 {
+		self.add_entry(
+			c"mangle",
+			self.nat_chain.as_c_str(),
+			entry,
+			Dscp,
+			"addpeerDSCPrule",
+			|e| {
+				if !entry.iaddr.is_unspecified() {
+					e.ip.src = Ip4Addr::from(entry.iaddr).into();
+					e.ip.smsk.s_addr = u32::MAX;
+				}
+				if !entry.raddr.is_unspecified() {
+					e.ip.dst = Ip4Addr::from(entry.raddr).into();
+					e.ip.dmsk.s_addr = u32::MAX;
+				}
+			},
+		)
+	}
 }
 #[inline]
 fn last_iptc_error() -> &'static str {
@@ -657,10 +662,10 @@ fn last_iptc_error() -> &'static str {
 	}
 }
 
-/// ingress: nat table pre-routing chain
-fn fill_from_redirect(
+
+fn fill_from_peer(
 	backend: &iptable,
-	entry: &mut FilterEntry,
+	entry: &mut MapEntry,
 	e: &ipt_entry,
 	xt_match: &xt_entry_match,
 	target: &xt_entry_target,
@@ -669,22 +674,58 @@ fn fill_from_redirect(
 
 	let mr = unsafe { &*(target.data.as_ptr() as *const nf_nat_multi_range_compat) };
 	unsafe {
-		let eport = if xt_match.u.user.name[0..4] == *mem::transmute::<&[u8; 4], &[c_char; 4]>(b"tcp\0") {
+		if xt_match.u.user.name.starts_with(mem::transmute(b"tcp\0".as_ref())) {
+			let info = &*(xt_match.data.as_ptr() as *const xt_tcp);
+			
+			entry.rport = info.dpts[0];
+			entry.iport = info.spts[0];
+		} else {
+			let info = &*(xt_match.data.as_ptr() as *const xt_udp);
+			entry.rport = info.dpts[0];
+			entry.iport = info.spts[0];
+		};
+		
+	}
+	entry.raddr = Ipv4Addr::from(e.ip.dst.s_addr);
+	entry.iaddr = Ipv4Addr::from(e.ip.src.s_addr);
+	
+	unsafe {
+		entry.eport = u16::from_be(mr.range[0].min.all);
+	}
+	if let Some(desc) = backend.get_redirect_desc(entry.eport, entry.proto) {
+		entry.desc = desc.desc.clone();
+		entry.timestamp = desc.timestamp;
+	}
+}
+
+/// ingress: nat table pre-routing chain
+fn fill_from_redirect(
+	backend: &iptable,
+	entry: &mut MapEntry,
+	e: &ipt_entry,
+	xt_match: &xt_entry_match,
+	target: &xt_entry_target,
+) {
+	// from dnat target
+
+	let mr = unsafe { &*(target.data.as_ptr() as *const nf_nat_multi_range_compat) };
+	unsafe {
+		let eport = if xt_match.u.user.name.starts_with(mem::transmute(b"tcp\0".as_ref())) {
 			let info = &*(xt_match.data.as_ptr() as *const xt_tcp);
 			info.dpts[0]
 		} else {
 			let info = &*(xt_match.data.as_ptr() as *const xt_udp);
 			info.dpts[0]
 		};
-		entry.sport = eport;
+		entry.eport = eport;
 	}
-	entry.saddr = Ipv4Addr::from(e.ip.src.s_addr);
+	entry.eaddr = Ipv4Addr::from(e.ip.src.s_addr);
 
-	entry.daddr = mr.range[0].min_ip;
+	entry.iaddr = mr.range[0].min_ip;
 	unsafe {
-		entry.dport = u16::from_be(mr.range[0].min.all);
+		entry.iport = u16::from_be(mr.range[0].min.all);
 	}
-	if let Some(desc) = backend.get_redirect_desc(entry.sport, entry.proto) {
+	if let Some(desc) = backend.get_redirect_desc(entry.eport, entry.proto) {
 		entry.desc = desc.desc.clone();
 		entry.timestamp = desc.timestamp;
 	}
@@ -692,7 +733,7 @@ fn fill_from_redirect(
 /// egress: nat table post-routing chain
 fn fill_from_redirect_masquerade(
 	backend: &iptable,
-	entry: &mut FilterEntry,
+	entry: &mut MapEntry,
 	e: &ipt_entry,
 	xt_match: &xt_entry_match,
 	target: &xt_entry_target,
@@ -701,40 +742,40 @@ fn fill_from_redirect_masquerade(
 
 	let mr = unsafe { &*(target.data.as_ptr() as *const nf_nat_multi_range_compat) };
 	unsafe {
-		let sport = if xt_match.u.user.name[0..4] == *mem::transmute::<&[u8; 4], &[c_char; 4]>(b"tcp\0") {
+		let sport = if xt_match.u.user.name.starts_with(mem::transmute(b"tcp\0".as_ref())) {
 			let info = &*(xt_match.data.as_ptr() as *const xt_tcp);
 			info.spts[0]
 		} else {
 			let info = &*(xt_match.data.as_ptr() as *const xt_udp);
 			info.spts[0]
 		};
-		entry.sport = sport;
+		entry.iport = sport;
 	}
-	entry.saddr = Ipv4Addr::from_bits(e.ip.src.s_addr);
+	entry.iaddr = Ipv4Addr::from_bits(e.ip.src.s_addr);
 
 	unsafe {
-		entry.dport = u16::from_be(mr.range[0].min.all);
+		entry.eport = u16::from_be(mr.range[0].min.all);
 	}
 }
 
 /// ingress: filter table forward chain
 fn fill_from_filter(
 	_backend: &iptable,
-	entry: &mut FilterEntry,
+	entry: &mut MapEntry,
 	e: &ipt_entry,
 	xt_match: &xt_entry_match,
 	_target: &xt_entry_target,
 ) {
-	entry.daddr = e.ip.dst.s_addr.into();
+	entry.iaddr = e.ip.dst.s_addr.into();
 	unsafe {
-		let iport = if xt_match.u.user.name[0..4] == *mem::transmute::<&[u8; 4], &[c_char; 4]>(b"tcp\0") {
+		let dport = if xt_match.u.user.name.starts_with(mem::transmute(b"tcp\0".as_ref())) {
 			let info = &*(xt_match.data.as_ptr() as *const xt_tcp);
 			info.dpts[0]
 		} else {
 			let info = &*(xt_match.data.as_ptr() as *const xt_udp);
 			info.dpts[0]
 		};
-		entry.dport = iport;
+		entry.eport = dport;
 	}
 }
 
@@ -743,7 +784,7 @@ pub(super) fn get_tcp_match(buf: &mut [u8], dport: u16, sport: u16) -> u16 {
 	let tcp_info = unsafe { (match_.data.as_mut_ptr() as *mut u8 as *mut xt_tcp).as_mut().unwrap() };
 
 	match_.u.match_size = get_tcp_match_size() as u16;
-	unsafe { match_.u.user.name[0..4].clone_from_slice(mem::transmute::<&[u8; 4], &[c_char; 4]>(b"tcp\0")) };
+	unsafe { match_.u.user.name[0..4].clone_from_slice(mem::transmute(b"tcp\0".as_ref())) };
 	if sport == 0 {
 		tcp_info.spts[0] = 0;
 		tcp_info.spts[1] = 0xffff;
@@ -769,7 +810,7 @@ pub(super) fn get_udp_match(buf: &mut [u8], dport: u16, sport: u16) -> u16 {
 	let udpinfo = unsafe { (buf[size_of::<xt_entry_match>()..].as_mut_ptr() as *mut xt_udp).as_mut().unwrap() };
 
 	match_.u.match_size = (xt_align::<xt_entry_match>() + xt_align::<xt_udp>()) as u16;
-	unsafe { match_.u.user.name[0..4].clone_from_slice(mem::transmute::<&[u8; 4], &[c_char; 4]>(b"udp\0")) };
+	unsafe { match_.u.user.name[0..4].clone_from_slice(mem::transmute(b"udp\0".as_ref())) };
 	if sport == 0 {
 		udpinfo.spts[0] = 0;
 		udpinfo.spts[1] = 0xffff;
@@ -800,7 +841,7 @@ pub(super) fn get_dnat_target(buf: &mut [u8], daddr: Ipv4Addr, dport: u16) {
 	};
 
 	target.u.target_size = (xt_align::<xt_entry_target>() + xt_align::<nf_nat_multi_range_compat>()) as u16;
-	unsafe { target.u.user.name[0..5].copy_from_slice(mem::transmute::<&[u8; 5], &[c_char; 5]>(b"DNAT\0")) };
+	unsafe { target.u.user.name[0..5].copy_from_slice(mem::transmute(b"DNAT\0".as_ref())) };
 	mr.rangesize = 1;
 	mr.range[0].min_ip = daddr;
 	mr.range[0].max_ip = daddr;
@@ -821,7 +862,7 @@ pub(super) fn get_snat_target(buf: &mut [u8], saddr: Ipv4Addr, sport: u16) {
 	};
 
 	target.u.target_size = (xt_align::<xt_entry_target>() + xt_align::<nf_nat_multi_range_compat>()) as u16;
-	unsafe { target.u.user.name[0..5].copy_from_slice(mem::transmute::<&[u8; 5], &[c_char; 5]>(b"SNAT\0")) };
+	unsafe { target.u.user.name[0..5].copy_from_slice(mem::transmute(b"SNAT\0".as_ref())) };
 	mr.rangesize = 1;
 	mr.range[0].min_ip = saddr;
 	mr.range[0].max_ip = saddr;
@@ -832,16 +873,15 @@ pub(super) fn get_snat_target(buf: &mut [u8], saddr: Ipv4Addr, sport: u16) {
 pub(super) const fn get_snat_target_size() -> usize {
 	xt_align::<xt_entry_target>() + xt_align::<nf_nat_multi_range_compat>()
 }
-pub(super) fn get_dscp_target(buf: &mut [u8], dscp: u8) -> u16 {
+pub(super) fn get_dscp_target(buf: &mut [u8], dscp: u8) {
 	let mut target = unsafe { (buf.as_mut_ptr() as *mut xt_entry_target).as_mut().unwrap() };
 	let mut di = unsafe { (buf[size_of::<xt_entry_target>()..].as_mut_ptr() as *mut xt_DSCP_info).as_mut().unwrap() };
 
 	target.u.target_size = (xt_align::<xt_entry_target>() + xt_align::<xt_DSCP_info>()) as u16;
-	unsafe { target.u.user.name[0..5].copy_from_slice(mem::transmute::<&[u8; 5], &[c_char; 5]>(b"DSCP\0")) };
+	unsafe { target.u.user.name[0..5].copy_from_slice(mem::transmute(b"DSCP\0".as_ref())) };
 	di.dscp = dscp;
-	(xt_align::<xt_entry_target>() + xt_align::<xt_DSCP_info>()) as u16
 }
-pub(super) const fn get_dsco_target_size() -> usize {
+pub(super) const fn get_dscp_target_size() -> usize {
 	xt_align::<xt_entry_target>() + xt_align::<xt_DSCP_info>()
 }
 pub(super) fn get_masquerade_target(buf: &mut [u8], port: u16) {
@@ -853,7 +893,7 @@ pub(super) fn get_masquerade_target(buf: &mut [u8], port: u16) {
 	};
 
 	target.u.target_size = get_masquerade_target_size() as _;
-	unsafe { target.u.user.name[0..11].copy_from_slice(mem::transmute::<&[u8; 11], &[c_char; 11]>(b"MASQUERADE\0")) };
+	unsafe { target.u.user.name[0..11].copy_from_slice(mem::transmute(b"MASQUERADE\0".as_ref())) };
 	mr.rangesize = 1;
 	mr.range[0].min.tcp_port = port.to_be();
 	mr.range[0].max.tcp_port = port.to_be();
@@ -866,7 +906,7 @@ pub(super) const fn get_masquerade_target_size() -> usize {
 pub(super) fn get_accept_target(buf: &mut [u8]) {
 	let mut target = unsafe { (buf.as_mut_ptr() as *mut xt_entry_target).as_mut().unwrap() };
 	target.u.target_size = get_accept_target_size() as _;
-	unsafe { target.u.user.name[0..7].copy_from_slice(mem::transmute::<&[u8; 7], &[c_char; 7]>(b"ACCEPT\0")) };
+	unsafe { target.u.user.name[0..7].copy_from_slice(mem::transmute(b"ACCEPT\0".as_ref())) };
 }
 pub(super) const fn get_accept_target_size() -> usize {
 	xt_align::<xt_entry_target>() + xt_align::<c_int>()
@@ -885,7 +925,7 @@ const fn xt_align<A>() -> usize {
 fn iptc_add_entry<P>(
 	table: &CStr,
 	chain: &CStr,
-	entry: &FilterEntry,
+	entry: &MapEntry,
 	target: Target,
 	caller: &'static str,
 	mut f: P,
@@ -904,6 +944,7 @@ where
 		Target::Dnat => get_dnat_target_size(),
 		Target::Masquerade => get_masquerade_target_size(),
 		Target::Accept => get_accept_target_size(),
+		Dscp => get_dscp_target_size(),
 	};
 	let mut buf: Vec<u8> = vec![0; entry_size + match_size + target_size];
 	let e_ptr = buf.as_mut_ptr() as *mut ipt_entry;
@@ -917,21 +958,25 @@ where
 		}
 	};
 	match target {
-		Target::Snat => {
-			match_set(&mut buf, entry.dport, entry.sport);
-			get_snat_target(&mut buf[entry_size + match_size..], entry.daddr, entry.dport)
+		Snat => {
+			match_set(&mut buf, entry.rport, entry.iport);
+			get_snat_target(&mut buf[entry_size + match_size..], entry.eaddr, entry.eport)
 		}
 		Dnat => {
-			match_set(&mut buf, entry.dport, 0);
-			get_dnat_target(&mut buf[entry_size + match_size..], entry.saddr, entry.sport)
+			match_set(&mut buf, entry.eport, 0);
+			get_dnat_target(&mut buf[entry_size + match_size..], entry.iaddr, entry.iport)
 		}
 		Masquerade => {
-			match_set(&mut buf, 0, entry.sport);
-			get_masquerade_target(&mut buf[entry_size + match_size..], entry.dport)
+			match_set(&mut buf, 0, entry.iport);
+			get_masquerade_target(&mut buf[entry_size + match_size..], entry.eport)
 		}
 		Accept => {
-			match_set(&mut buf, entry.sport, 0);
+			match_set(&mut buf, entry.eport, 0);
 			get_accept_target(&mut buf[entry_size + match_size..])
+		}
+		Dscp => {
+			match_set(&mut buf, entry.rport, entry.iport);
+			get_dscp_target(&mut buf[entry_size + match_size..], entry.dscp)
 		}
 	};
 
@@ -994,17 +1039,17 @@ mod tests {
 		}
 
 		let mut nat = iptable::init();
-		let entry = FilterEntry {
+		let entry = MapEntry {
 			proto: UDP,
-			sport: 8568,
-			dport: 8710,
-			saddr: Ipv4Addr::new(192, 168, 1, 2),
+			eport: 8568,
+			iport: 8710,
+			eaddr: Ipv4Addr::new(192, 168, 1, 2),
 			..Default::default()
 		};
 		let test_table = c"nat";
 		let test_chain = c"POSTROUTING";
 		let r = nat.add_entry(test_table, test_chain, &entry, Masquerade, "test", |e| {
-			e.ip.src = Ip4Addr::from(entry.saddr).into();
+			e.ip.src = Ip4Addr::from(entry.eaddr).into();
 			e.ip.smsk.s_addr = u32::MAX;
 		});
 		assert_eq!(r, 0);
@@ -1018,7 +1063,7 @@ mod tests {
 		}
 
 		let entry_ = nat.get_entry(test_table, test_chain, fill_from_redirect_masquerade, |x| {
-			entry.proto == x.proto && entry.saddr == x.saddr && entry.sport == x.sport
+			entry.proto == x.proto && entry.eaddr == x.eaddr && entry.eport == x.eport
 		});
 		assert!(entry_.is_some());
 		println!("entry: {:?}", entry_);

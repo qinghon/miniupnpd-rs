@@ -27,7 +27,7 @@ regex-lite = {version = "0.1", optional = true}
 openssl-sys = {git = "https://github.com/qinghon/rust-openssl.git", optional = true , features = ["bindgen"]}
 
 [features]
-default = ["igd2", "events", "ipv6", "strict", "rule_use_ifname"]
+default = ["igd2", "events", "ipv6", "strict", "rule_use_ifname", "pcp"]
 pcp = []
 pcp_peer = ["pcp"]
 igd2 = []
@@ -40,7 +40,7 @@ multiple_ext_ip = []
 #nfqueue = []
 #ifacewatcher = []
 regex = ["dep:regex-lite"]
-_dp_service = []
+dp_service = []
 events = []
 randomurl= []
 pcp_sadscp = ["pcp"]
@@ -64,7 +64,10 @@ unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(use_getifaddrs)',
     'cfg(uuid, values("native"))',
     'cfg(uuid, values("libuuid"))',
-    'cfg(use_systemd)'
+    'cfg(conntrack, values("proc"))',
+    'cfg(conntrack, values("nfct"))',
+    'cfg(use_systemd)',
+    'cfg(openssl3)'
 ] }
 
 [profile.release]
@@ -90,6 +93,7 @@ overflow-checks = false
 
 [build-dependencies]
 pkg-config = {version = "0"}
+openssl-sys = {git = "https://github.com/qinghon/rust-openssl.git", optional = true , features = ["bindgen"]}
 [build-dependencies.bindgen]
 version = "0.71"
 git = "https://github.com/rust-lang/rust-bindgen.git"

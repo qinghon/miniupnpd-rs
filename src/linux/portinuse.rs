@@ -73,16 +73,16 @@ pub(super) fn port_in_use(
 	}
 	unsafe { libc::fclose(f) };
 	if found == 0 {
-		if let Some(x) = nat.get_redirect_rule(|x| x.proto == proto && x.sport == eport) {
+		if let Some(x) = nat.get_redirect_rule(|x| x.proto == proto && x.eport == eport) {
 			debug!(
 				"port_in_use check port {} on nat chain {} redirected to {} port {}",
 				eport,
 				nat.get_redir_chain_name(),
-				x.daddr,
-				x.dport
+				x.iaddr,
+				x.iport
 			);
 
-			if !(iaddr == &x.daddr && x.dport == iport) {
+			if !(iaddr == &x.iaddr && x.iport == iport) {
 				found += 1;
 			}
 		}

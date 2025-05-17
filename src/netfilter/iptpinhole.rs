@@ -99,9 +99,9 @@ impl Ip6tableIter<'_> {
 	}
 }
 impl<'a> Iterator for Ip6tableIter<'a> {
-	type Item = &'a mut PinholeEntry;
+	type Item = &'a PinholeEntry;
 
-	fn next(&mut self) -> Option<&'a mut PinholeEntry> {
+	fn next(&mut self) -> Option<&'a PinholeEntry> {
 		if self.handle.is_null() {
 			return None;
 		}
@@ -138,9 +138,9 @@ impl<'a> Iterator for Ip6tableIter<'a> {
 				index: self.index,
 				proto,
 				iport,
-				eport,
+				rport: eport,
 				iaddr,
-				eaddr,
+				raddr: eaddr,
 				desc: None,
 				packets: entry_ref.counters.pcnt,
 				bytes: entry_ref.counters.bcnt,
@@ -152,7 +152,7 @@ impl<'a> Iterator for Ip6tableIter<'a> {
 			// 	self.entry.timestamp = desc.timestamp;
 			// }
 			self.index += 1;
-			Some(&mut *((&mut self.entry) as *mut PinholeEntry))
+			Some(&*((&self.entry) as *const PinholeEntry))
 		}
 	}
 	fn count(self) -> usize
@@ -197,7 +197,7 @@ where
 	e.ipv6.proto = entry.proto as u16;
 	match target {
 		Target::Accept => {
-			ip6_new_match(&mut buf[entry_size..], entry.proto, entry.eport, entry.iport);
+			ip6_new_match(&mut buf[entry_size..], entry.proto, entry.rport, entry.iport);
 			get_accept_target(&mut buf[entry_size + match_size..])
 		}
 		_ => return -1,

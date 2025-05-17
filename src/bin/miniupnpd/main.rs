@@ -20,6 +20,8 @@ use miniupnpd_rs::upnpevents::upnp_update_status;
 use miniupnpd_rs::upnpevents::*;
 use miniupnpd_rs::upnpglobalvars::*;
 use miniupnpd_rs::upnphttp::{ESendingAndClosing, EToDelete, EWaitingForHttpContent, upnphttp};
+#[cfg(feature = "https")]
+use miniupnpd_rs::upnphttp::{InitSSL_upnphttp, init_ssl};
 use miniupnpd_rs::upnphttp::{MINIUPNPD_SERVER_STRING, New_upnphttp, Process_upnphttp};
 use miniupnpd_rs::upnppinhole::upnp_clean_expired_pinholes;
 use miniupnpd_rs::upnpredirect::{get_upnp_rules_state_list, remove_unused_rules, rule_state};
@@ -44,9 +46,6 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::time::{Duration, Instant};
 use std::{fs, io, mem, ptr};
-
-#[cfg(feature = "https")]
-use miniupnpd_rs::upnphttp::{InitSSL_upnphttp, init_ssl};
 
 mod daemonize;
 
@@ -188,6 +187,18 @@ mod capng {
 	)]
 	include!(concat!(env!("OUT_DIR"), "/cap-ng.rs"));
 }
+#[cfg(cap_lib = "cap_ng")]
+mod capability {
+	#![allow(
+		dead_code,
+		non_camel_case_types,
+		non_snake_case,
+		non_upper_case_globals,
+		unused_assignments,
+		unused_mut
+	)]
+	include!(concat!(env!("OUT_DIR"), "/linux_capability.rs"));
+}
 
 #[cfg(cap_lib = "cap_ng")]
 fn drop_privilege() -> i32 {
@@ -198,9 +209,9 @@ fn drop_privilege() -> i32 {
 		if capng_updatev(
 			CAPNG_ADD,
 			CAPNG_EFFECTIVE | CAPNG_PERMITTED,
-			CAP_NET_BROADCAST,
-			CAP_NET_ADMIN,
-			CAP_NET_RAW,
+			capability::CAP_NET_BROADCAST,
+			capability::CAP_NET_ADMIN,
+			capability::CAP_NET_RAW,
 			-1,
 		) < 0
 		{
@@ -907,10 +918,10 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 	if setup_signal_handle() != 0 {
 		return 1;
 	}
-	
+
 	#[cfg(feature = "randomurl")]
 	let _ = random_url.set(format!("{:08x}", random::<u64>()).into());
-	
+
 	if rt.nat_impl.init_redirect() < 0 {
 		error!("Failed to init redirection engine. EXITING");
 		return 1;
@@ -925,8 +936,8 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 	}
 
 	info!("Reloading rules from lease file");
-	let _ = upnpredirect::reload_from_lease_file(rt, &option.lease_file);
-	let _ = upnppinhole::reload_from_lease_file6(&mut rt.nat_impl, &option.lease_file6);
+	let _ = upnpredirect::reload_from_lease_file(&option, rt, &option.lease_file);
+	let _ = upnppinhole::reload_from_lease_file6(&option, &mut rt.nat_impl, &option.lease_file6);
 	trace!("load option {:?}", option);
 	v.replace(option);
 	0
@@ -1186,10 +1197,8 @@ fn main() {
 			if !rule_list.is_empty() {
 				remove_unused_rules(rt, &mut rule_list);
 				rule_list.clear();
-			} else {
-				if let Some(l) = get_upnp_rules_state_list(rt, op.clean_ruleset_threshold as i32) {
-					rule_list = l;
-				}
+			} else if let Some(l) = get_upnp_rules_state_list(rt, op.clean_ruleset_threshold as i32) {
+				rule_list = l;
 			}
 			checktime = timeofday;
 		}
@@ -1199,7 +1208,7 @@ fn main() {
 		}
 		if timeout >= rt.nextruletoclean_timestamp - timeofday {
 			timeout = rt.nextruletoclean_timestamp - timeofday;
-			debug!("setting timeout to {} sec", timeout.as_secs());
+			debug!("setting timeout to {}.{}", timeout.as_secs(), timeout.subsec_nanos());
 		}
 		next_pinhole_ts = Instant::now();
 		let mut next_pinhole_times = 0;

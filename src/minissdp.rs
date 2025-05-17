@@ -10,7 +10,6 @@ use crate::upnputils::get_lan_for_peer;
 use crate::uuid::UUID;
 use crate::warp::{ip_is_ipv4_mapped, recv_from_if};
 use crate::{GETFLAG, error, warn};
-use once_cell::sync::OnceCell;
 use socket2::Socket;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
@@ -275,7 +274,7 @@ fn SendSSDPResponse(
 	delay: u32,
 ) {
 	#[cfg(any(feature = "https", feature = "randomurl"))]
-	let op = global_option.get().unwrap();
+	let _op = global_option.get().unwrap();
 
 	let booid = upnp_bootid.load(Relaxed);
 	let server_version = MINIUPNPD_SERVER_STRING.get().unwrap();
@@ -283,14 +282,14 @@ fn SendSSDPResponse(
 	let https = format!(
 		"SECURELOCATION.UPNP.ORG: https://{}:{}/{}{}\r\n",
 		host,
-		op.https_port,
+		_op.https_port,
 		random_url.get().unwrap().as_str(),
 		ROOTDESC_PATH
 	);
 	#[cfg(all(feature = "https", not(feature = "randomurl")))]
 	let https = format!(
 		"SECURELOCATION.UPNP.ORG: https://{}:{}{}\r\n",
-		host, op.https_port, ROOTDESC_PATH
+		host, _op.https_port, ROOTDESC_PATH
 	);
 	#[cfg(not(feature = "https"))]
 	let https = "";
@@ -343,7 +342,7 @@ static known_service_types: &[server_type] = &[
 	server_type { s: "urn:schemas-upnp-org:device:WANDevice:", version: 2, uuid: &uuidvalue_wan },
 	#[cfg(feature = "igd2")]
 	server_type { s: "urn:schemas-upnp-org:service:WANIPConnection:", version: 2, uuid: &uuidvalue_wcd },
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	server_type { s: "urn:schemas-upnp-org:device:DeviceProtection:", version: 1, uuid: &uuidvalue_igd },
 	#[cfg(feature = "ipv6")]
 	server_type { s: "urn:schemas-upnp-org:service:WANIPv6FirewallControl:", version: 1, uuid: &uuidvalue_wcd },

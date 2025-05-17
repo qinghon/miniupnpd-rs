@@ -8,15 +8,14 @@ use std::fmt::Write;
 use crate::miniupnpdpath::*;
 use crate::options::RtOptions;
 use crate::upnpdescstrings::*;
-#[cfg(feature = "randomurl")]
-use crate::upnpglobalvars::random_url;
+
+use crate::upnpglobalvars::OnceCell;
 use crate::upnpglobalvars::*;
 #[cfg(feature = "ipv6")]
 use crate::upnpglobalvars::{IPV6FCFWDISABLEDMASK, IPV6FCINBOUNDDISALLOWEDMASK};
 use crate::upnpredirect::upnp_get_portmapping_number_of_entries;
 use crate::upnpurns::*;
 use crate::uuid::UUID;
-use once_cell::sync::OnceCell;
 use std::net::Ipv4Addr;
 
 type MAGICALVALUE = u8;
@@ -145,15 +144,15 @@ const magicargname: &[&str] = &[
 	"InternalClient",
 	"InternalPort",
 	"IsWorking",
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	"ProtocolType", // 8
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	"InMessage",
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	"OutMessage",
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	"ProtocolList",
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	"RoleList",
 ];
 const xmlver: &str = "<?xml version=\"1.0\"?>\r\n";
@@ -174,9 +173,9 @@ static rootDesc: &[XMLElt] = &[
 	// 0
 	XMLElt { eltname: root_device, data: XMLEltData::value(1, 2) },
 	XMLElt { eltname: "specVersion", data: XMLEltData::value(3, 2) },
-	#[cfg(any(feature = "_dp_service"))]
+	#[cfg(any(feature = "dp_service"))]
 	XMLElt { eltname: "device", data: XMLEltData::value(5, 13) },
-	#[cfg(not(any(feature = "_dp_service")))]
+	#[cfg(not(any(feature = "dp_service")))]
 	XMLElt { eltname: "device", data: XMLEltData::value(5, 12) },
 	XMLElt { eltname: "/major", data: XMLEltData::str(UPNP_VERSION_MAJOR_STR) },
 	XMLElt { eltname: "/minor", data: XMLEltData::str(UPNP_VERSION_MINOR_STR) },
@@ -270,15 +269,15 @@ static rootDesc: &[XMLElt] = &[
 	XMLElt { eltname: "/controlURL", data: XMLEltData::str(L3F_CONTROLURL) },
 	XMLElt { eltname: "/eventSubURL", data: XMLEltData::str(L3F_EVENTURL) },
 	// 65 / 70 SERVICES_OFFSET +7
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	XMLElt { eltname: "/serviceType", data: XMLEltData::str("urn:schemas-upnp-org:service:DeviceProtection:1") },
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	XMLElt { eltname: "/serviceId", data: XMLEltData::str("urn:upnp-org:serviceId:DeviceProtection1") },
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	XMLElt { eltname: "/SCPDURL", data: XMLEltData::str(DP_PATH) },
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	XMLElt { eltname: "/controlURL", data: XMLEltData::str(DP_CONTROLURL) },
-	#[cfg(feature = "_dp_service")]
+	#[cfg(feature = "dp_service")]
 	XMLElt { eltname: "/eventSubURL", data: XMLEltData::str(DP_EVENTURL) },
 ];
 const AddPortMappingArgs: [argument; 8] = [
@@ -529,23 +528,23 @@ const IPv6FCVars: [stateVar; 10] = [
 ];
 const scpd6FC: serviceDesc = serviceDesc { actionList: &IPv6FCActions, serviceStateTable: &IPv6FCVars };
 
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 const SendSetupMessageArgs: [argument; 3] = [
 	argument { dir: IN | NO_NEW | (index!(8)), relatedVar: 6 }, /* ProtocolType : in ProtocolType / A_ARG_TYPE_String */
 	argument { dir: IN | NO_NEW | (index!(9)), relatedVar: 5 }, /* InMessage : in InMessage / A_ARG_TYPE_Base64 */
 	argument { dir: OUT | NO_NEW | (index!(10)), relatedVar: 5 }, /* OutMessage : out OutMessage / A_ARG_TYPE_Base64 */
 ];
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 const GetSupportedProtocolsArgs: [argument; 1] = [argument { dir: OUT | NO_NEW | (index!(11)), relatedVar: 1 }];
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 const GetAssignedRolesArgs: [argument; 1] = [argument { dir: OUT | NO_NEW | (index!(12)), relatedVar: 6 }];
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 const DPActions: [action; 3] = [
 	action { name: "SendSetupMessage", args: Some(&SendSetupMessageArgs) },
 	action { name: "GetSupportedProtocols", args: Some(&GetSupportedProtocolsArgs) },
 	action { name: "GetAssignedRoles", args: Some(&GetAssignedRolesArgs) },
 ];
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 const DPVars: [stateVar; 7] = [
 	stateVar {
 		name: "SetupReady",
@@ -561,7 +560,7 @@ const DPVars: [stateVar; 7] = [
 	stateVar { name: "A_ARG_TYPE_Base64", itype: 4, ..stateVar::default() },
 	stateVar { name: "A_ARG_TYPE_String", itype: 0, ..stateVar::default() },
 ];
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 const scpdDP: serviceDesc = serviceDesc { actionList: &DPActions, serviceStateTable: &DPVars };
 
 fn genXML(p: &[XMLElt], force_igd1: bool) -> String {
@@ -874,7 +873,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 			match var.ieventvalue {
 				0 => {}
 
-				#[cfg(feature = "_dp_service")]
+				#[cfg(feature = "dp_service")]
 				SETUPREADY_MAGICALVALUE => {
 					result.push_str("1"); // always ready for setup
 				}
@@ -969,12 +968,12 @@ pub fn getVarsL3F(rt: &mut RtOptions) -> Option<String> {
 pub fn getVars6FC(rt: &mut RtOptions) -> Option<String> {
 	genEventVars(rt, &scpd6FC)
 }
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 pub fn genDP(force_igd1: bool) -> String {
 	genServiceDesc(&scpdDP, force_igd1)
 }
 
-#[cfg(feature = "_dp_service")]
+#[cfg(feature = "dp_service")]
 pub fn getVarsDP(rt: &mut RtOptions) -> Option<String> {
 	genEventVars(rt, &scpdDP)
 }

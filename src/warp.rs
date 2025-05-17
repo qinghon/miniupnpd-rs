@@ -4,7 +4,7 @@ use crate::upnputils::upnp_time;
 use libc::{c_int, c_uint, in_addr};
 use std::cmp::min;
 use std::ffi::CStr;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::io::Read;
 use std::mem::MaybeUninit;
 #[cfg(feature = "ipv6")]
@@ -135,7 +135,7 @@ impl IfName {
 	}
 }
 
-#[derive(Default, Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Default, Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg(not(any(
 	target_os = "haiku",
 	target_os = "illumos",
@@ -175,6 +175,11 @@ impl FromStr for IfName {
 	target_os = "cygwin"
 )))]
 impl Display for IfName {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.write_str(self.as_str())
+	}
+}
+impl Debug for IfName {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		f.write_str(self.as_str())
 	}
@@ -448,6 +453,7 @@ macro_rules! impl_from_into {
 		impl From<$source> for $target {
 			#[inline]
 			fn from(value: $source) -> Self {
+				const _: [(); std::mem::size_of::<$source>()] = [(); std::mem::size_of::<$target>()];
 				unsafe { std::mem::transmute(value) }
 			}
 		}
@@ -455,6 +461,19 @@ macro_rules! impl_from_into {
 		impl Into<$source> for $target {
 			#[inline]
 			fn into(self) -> $source {
+				unsafe { std::mem::transmute(self) }
+			}
+		}
+		impl<'a> From<&'a $source> for &'a $target {
+			#[inline]
+			fn from(value: &'a $source) -> &'a $target {
+				unsafe { std::mem::transmute(value) }
+			}
+		}
+
+		impl<'a> Into<&'a $source> for &'a $target {
+			#[inline]
+			fn into(self) -> &'a $source {
 				unsafe { std::mem::transmute(self) }
 			}
 		}
@@ -469,13 +488,6 @@ pub struct Ip4Addr([u8; 4]);
 impl_from_into!(in_addr, Ip4Addr);
 impl_from_into!(Ipv4Addr, Ip4Addr);
 impl_from_into!(u32, Ip4Addr);
-
-impl<'a> From<&'a Ipv4Addr> for &'a Ip4Addr {
-	#[inline]
-	fn from(addr: &'a Ipv4Addr) -> &'a Ip4Addr {
-		unsafe { &*(addr as *const _ as *const Ip4Addr) }
-	}
-}
 
 /// replace [io::BufRead], the BufRead always alloc 8K heap buffer,
 /// mostly we only need read small string ,

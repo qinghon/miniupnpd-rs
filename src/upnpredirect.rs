@@ -1,12 +1,12 @@
 use crate::RuleTable::Redirect;
-use crate::options::RtOptions;
+use crate::options::{Options, RtOptions};
 use crate::upnpevents::subscriber_service_enum::EWanIPC;
 use crate::upnpevents::upnp_event_var_change_notify;
 use crate::upnpglobalvars::{ALLOWPRIVATEIPV4MASK, global_option};
 use crate::upnppermissions::check_upnp_rule_against_permissions;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
 use crate::warp::StackBufferReader;
-use crate::{Backend, FilterEntry, OS, nat_impl};
+use crate::{Backend, MapEntry, OS, nat_impl};
 use std::fs;
 use std::fs::{File, remove_file};
 use std::io::{self, Write};
@@ -14,6 +14,7 @@ use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 #[derive(Copy, Clone)]
@@ -26,12 +27,19 @@ pub struct rule_state {
 	pub to_remove: u8,
 }
 
-fn lease_file_add(iaddr: Ipv4Addr, eport: u16, iport: u16, proto: u8, desc: Option<&str>, timestamp: u32) -> i32 {
-	let lease_file = &global_option.get().unwrap().lease_file;
+fn lease_file_add(
+	lease_file: &str,
+	iaddr: Ipv4Addr,
+	eport: u16,
+	iport: u16,
+	proto: u8,
+	desc: Option<&str>,
+	timestamp: u32,
+) -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::OpenOptions::new().read(true).write(true).append(true).open(lease_file.as_str()) {
+	let mut fd = match fs::OpenOptions::new().read(true).append(true).create(true).open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => {
 			error!("could to open lease file {}", lease_file);
@@ -89,7 +97,7 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 	}
 	0
 }
-pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> io::Result<()> {
+pub fn reload_from_lease_file(op: &Options, rt: &mut RtOptions, lease_file: &str) -> io::Result<()> {
 	if !Path::new(lease_file).exists() {
 		return Err(io::ErrorKind::NotFound.into());
 	}
@@ -153,13 +161,23 @@ pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> io::Resul
 			0
 		};
 
-		match upnp_redirect(rt, None, iaddr, eport, iport, proto, desc, leaseduration as u32) {
+		match upnp_redirect(
+			op,
+			rt,
+			Ipv4Addr::UNSPECIFIED,
+			iaddr,
+			eport,
+			iport,
+			proto,
+			desc,
+			leaseduration as u32,
+		) {
 			-1 => eprintln!(
 				"Error: Failed to redirect {} -> {}:{} protocol {}",
 				eport, iaddr, iport, proto
 			),
 			-2 => {
-				lease_file_add(iaddr, eport, iport, proto, desc, timestamp);
+				lease_file_add(&op.lease_file, iaddr, eport, iport, proto, desc, timestamp);
 			}
 			_ => {}
 		}
@@ -169,8 +187,9 @@ pub fn reload_from_lease_file(rt: &mut RtOptions, lease_file: &str) -> io::Resul
 }
 
 pub fn upnp_redirect(
+	op: &Options,
 	rt: &mut RtOptions,
-	rhost: Option<Ipv4Addr>,
+	raddr: Ipv4Addr,
 	iaddr: Ipv4Addr,
 	eport: u16,
 	iport: u16,
@@ -178,7 +197,7 @@ pub fn upnp_redirect(
 	desc: Option<&str>,
 	leaseduration: u32,
 ) -> i32 {
-	let op = global_option.get().unwrap();
+	// let op = global_option.get().unwrap();
 
 	if !check_upnp_rule_against_permissions(&op.upnpperms, eport, iaddr, iport, desc.unwrap_or("")) {
 		info!(
@@ -194,16 +213,12 @@ pub fn upnp_redirect(
 
 	if let Some(entry) = rt
 		.nat_impl
-		.get_redirect_rule(|x| x.dport == eport && x.proto == proto && x.daddr == iaddr && x.sport == iport)
+		.get_redirect_rule(|x| x.iport == eport && x.proto == proto && x.iaddr == iaddr && x.eport == iport)
 	{
-		if entry.daddr == iaddr && rhost.is_none() && entry.saddr.is_unspecified() {
+		if entry.iaddr == iaddr && raddr.is_unspecified() && entry.eaddr.is_unspecified() {
 			debug!(
 				"updating existing port mapping {} {} (rhost '{}') => {}:{}",
-				eport,
-				proto,
-				rhost.unwrap_or(Ipv4Addr::UNSPECIFIED),
-				iaddr,
-				iport
+				eport, proto, raddr, iaddr, iport
 			);
 
 			let timestamp = if leaseduration > 0 {
@@ -212,7 +227,7 @@ pub fn upnp_redirect(
 				0
 			} as u32;
 			let op = global_option.get().unwrap();
-			let ret = if iport != entry.sport {
+			let ret = if iport != entry.eport {
 				rt.nat_impl.update_portmapping(&op.ext_ifname, eport, proto, iport, desc.unwrap(), timestamp)
 			} else {
 				rt.nat_impl
@@ -221,12 +236,12 @@ pub fn upnp_redirect(
 
 			if ret == 0 {
 				lease_file_remove(eport, proto);
-				lease_file_add(iaddr, eport, iport, proto, desc, timestamp);
+				lease_file_add(&op.lease_file, iaddr, eport, iport, proto, desc, timestamp);
 			}
 			if ret == 0 {
 				info!(
 					"action=UpdatePortMapping rhost={} eport={} iaddr={} iport={} proto={} desc={} timestamp={}",
-					rhost.unwrap_or(Ipv4Addr::UNSPECIFIED),
+					raddr,
 					eport,
 					iaddr,
 					iport,
@@ -239,11 +254,7 @@ pub fn upnp_redirect(
 		} else {
 			info!(
 				"port {} {} (rhost '{}') already redirected to {}:{}",
-				eport,
-				proto,
-				rhost.unwrap_or(Ipv4Addr::UNSPECIFIED),
-				iaddr,
-				iport
+				eport, proto, raddr, iaddr, iport
 			);
 			return -2;
 		}
@@ -266,34 +277,41 @@ pub fn upnp_redirect(
 			iport,
 			desc.unwrap_or_default()
 		);
-		return upnp_redirect_internal(rt, rhost, iaddr, eport, iport, proto, desc, timestamp);
+		let entry = MapEntry {
+			iaddr,
+			eport,
+			iport,
+			raddr,
+			proto,
+			desc: desc.map(Rc::from),
+			timestamp: timestamp as _,
+			..Default::default()
+		};
+		return upnp_redirect_internal(op, rt, &entry);
 	}
 }
 
-pub fn upnp_redirect_internal(
-	rt: &mut RtOptions,
-	rhost: Option<Ipv4Addr>,
-	iaddr: Ipv4Addr,
-	eport: u16,
-	iport: u16,
-	proto: u8,
-	desc: Option<&str>,
-	timestamp: u32,
-) -> i32 {
-	let v = global_option.get().unwrap();
-
-	if !GETFLAG!(v.runtime_flags, ALLOWPRIVATEIPV4MASK) && rt.disable_port_forwarding {
+pub fn upnp_redirect_internal(op: &Options, rt: &mut RtOptions, entry: &MapEntry) -> i32 {
+	if !GETFLAG!(op.runtime_flags, ALLOWPRIVATEIPV4MASK) && rt.disable_port_forwarding {
 		return -1;
 	}
-	if rt.nat_impl.add_redirect_rule2(&v.ext_ifname, rhost, iaddr, eport, iport, proto, desc, timestamp) < 0 {
+	if rt.nat_impl.add_redirect_rule(&op.ext_ifname, &entry) < 0 {
 		return -1;
 	}
-	lease_file_add(iaddr.into(), eport, iport, proto, desc, timestamp);
-	if rt.nat_impl.add_filter_rule2(&v.ext_ifname, rhost, iaddr, eport, iport, proto, desc) < 0 {
+	lease_file_add(
+		&op.lease_file,
+		entry.iaddr,
+		entry.eport,
+		entry.iport,
+		entry.proto,
+		entry.desc.as_deref(),
+		entry.timestamp as _,
+	);
+	if rt.nat_impl.add_filter_rule(&op.ext_ifname, &entry) < 0 {
 		return -(1);
 	}
-	if timestamp > 0 {
-		let add = Duration::from_secs(timestamp as u64) - upnp_time();
+	if entry.timestamp > 0 {
+		let add = Duration::from_secs(entry.timestamp) - upnp_time();
 		let xx = Instant::now() + add;
 		if xx < rt.nextruletoclean_timestamp {
 			rt.nextruletoclean_timestamp = xx;
@@ -301,21 +319,21 @@ pub fn upnp_redirect_internal(
 	}
 	info!(
 		"action=AddPortMapping rhost={} eport={} iaddr={} iport={} proto={} desc={} timestamp={}",
-		rhost.unwrap_or(Ipv4Addr::UNSPECIFIED),
-		eport,
-		iaddr,
-		iport,
-		proto_itoa(proto),
-		desc.unwrap_or_default(),
-		timestamp
+		entry.raddr,
+		entry.eport,
+		entry.iaddr,
+		entry.iport,
+		proto_itoa(entry.proto),
+		entry.desc.as_deref().unwrap_or_default(),
+		entry.timestamp
 	);
 	upnp_event_var_change_notify(&mut rt.subscriber_list, EWanIPC);
 	return 0;
 }
-pub fn upnp_get_redirection_infos(nat: &nat_impl, eport: u16, protocol: u8) -> Option<FilterEntry> {
-	nat.get_redirect_rule(|x| x.dport == eport && x.proto == protocol)
+pub fn upnp_get_redirection_infos(nat: &nat_impl, eport: u16, protocol: u8) -> Option<MapEntry> {
+	nat.get_redirect_rule(|x| x.iport == eport && x.proto == protocol)
 }
-pub fn upnp_get_redirection_infos_by_index(nat: &nat_impl, index: usize) -> Option<FilterEntry> {
+pub fn upnp_get_redirection_infos_by_index(nat: &nat_impl, index: usize) -> Option<MapEntry> {
 	let op = global_option.get().unwrap();
 	let iter = nat.get_iter(&op.ext_ifname, Redirect)?;
 	let mut cur_idx = 0;
@@ -328,12 +346,7 @@ pub fn upnp_get_redirection_infos_by_index(nat: &nat_impl, index: usize) -> Opti
 	None
 }
 
-pub fn _upnp_delete_redir(
-	rt: &mut RtOptions,
-	// nat: &mut impl Backend,
-	eport: u16,
-	proto: u8,
-) -> i32 {
+pub fn _upnp_delete_redir(rt: &mut RtOptions, eport: u16, proto: u8) -> i32 {
 	let op = global_option.get().unwrap();
 	let r = rt.nat_impl.delete_redirect_and_filter_rules(&op.ext_ifname, eport, proto);
 	lease_file_remove(eport, proto);
@@ -386,7 +399,7 @@ pub fn get_upnp_rules_state_list(rt: &mut RtOptions, max_rules_number_target: i3
 			list.push(rule_state {
 				packets: entry.packets,
 				bytes: entry.bytes,
-				eport: entry.dport,
+				eport: entry.eport,
 				proto: entry.proto,
 				to_remove: remove,
 			});
@@ -412,15 +425,17 @@ pub fn remove_unused_rules(rt: &mut RtOptions, list: &mut Vec<rule_state>) {
 	let mut idx = 0;
 	while idx < list.len() {
 		let rule = &list[idx];
-		if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.dport == rule.eport && rule.proto == x.proto) {
-			debug!(
-				"removing unused mapping {} {}: still {} packets {} packets",
-				rule.eport, rule.proto, entry.packets, entry.bytes
-			);
-			_upnp_delete_redir(rt, rule.eport, rule.proto);
-			let _ = rule;
-			list.swap_remove(idx);
-			continue;
+		if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.eport == rule.eport && rule.proto == x.proto) {
+			if rule.packets == entry.packets && rule.bytes == entry.bytes {
+				debug!(
+					"removing unused mapping {} {}: still {} packets {} packets",
+					rule.eport, rule.proto, entry.packets, entry.bytes
+				);
+				_upnp_delete_redir(rt, rule.eport, rule.proto);
+				let _ = rule;
+				list.swap_remove(idx);
+				continue;
+			}
 		}
 		idx += 1;
 	}

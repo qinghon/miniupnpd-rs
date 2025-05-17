@@ -7,3 +7,8 @@
 	unused_assignments,
 	unused_mut
 )]
+use std::net::SocketAddr;
+
+pub(super) fn get_nat_ext_addr(src: Option<SocketAddr>, dst: Option<SocketAddr>, proto: u8) -> Option<SocketAddr> {
+	crate::linux::os_impl::get_nat_ext_addr(src, dst, proto)
+}

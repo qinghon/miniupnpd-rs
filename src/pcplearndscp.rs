@@ -1,8 +1,6 @@
-use std::rc::Rc;
-
 #[derive(Debug, Default)]
 pub(crate) struct dscp_value {
-	pub(crate) app_name: Rc<str>,
+	pub(crate) app_name: Box<str>,
 	pub(crate) delay: u8,
 	pub(crate) loss: u8,
 	pub(crate) jitter: u8,

@@ -15,7 +15,7 @@ impl<'a> Nftable6Iter<'a> {
 	}
 }
 impl<'a> Iterator for Nftable6Iter<'a> {
-	type Item = &'a mut PinholeEntry;
+	type Item = &'a PinholeEntry;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let rule = loop {
@@ -31,18 +31,18 @@ impl<'a> Iterator for Nftable6Iter<'a> {
 
 		self.entry = PinholeEntry::default();
 		self.entry.proto = rule.proto;
-		self.entry.eport = rule.sport;
+		self.entry.rport = rule.sport;
 		self.entry.iport = rule.dport;
 
 		self.entry.iaddr = rule.saddr6;
-		self.entry.eaddr = rule.daddr6;
+		self.entry.raddr = rule.daddr6;
 
 		let (uid, ts) = parse_pinhole_desc(&rule.desc)?;
 		self.entry.index = uid as _;
 		self.entry.timestamp = ts as _;
 		self.entry.desc = Some(Rc::from(rule.desc.split_ascii_whitespace().nth(2)?.as_str()));
 
-		Some(unsafe { &mut *((&mut self.entry) as *mut PinholeEntry) })
+		Some(unsafe { &*((&self.entry) as *const PinholeEntry) })
 	}
 }
 

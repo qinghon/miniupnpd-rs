@@ -37,9 +37,9 @@ impl FromStr for upnpperm {
 			})
 			.ok_or(io::ErrorKind::InvalidInput)?;
 
-		let port_range = tokens.next().ok_or(io::ErrorKind::InvalidInput)?;
-		let ip_mask = tokens.next().ok_or(io::ErrorKind::InvalidInput)?;
 		let ext_port_range = tokens.next().ok_or(io::ErrorKind::InvalidInput)?;
+		let ip_mask = tokens.next().ok_or(io::ErrorKind::InvalidInput)?;
+		let port_range = tokens.next().ok_or(io::ErrorKind::InvalidInput)?;
 		#[cfg(feature = "regex")]
 		let re = {
 			if let Some(start) = line.find('"')
@@ -145,15 +145,15 @@ pub fn check_upnp_rule_against_permissions(
 	let mut i = 0;
 	for permary in permarys {
 		if match_permission(permary, eport, address, iport, desc) {
-			debug!(
-				"UPnP permission rule {} matched : port mapping {}",
-				i,
-				if permary.type_0 == UPNPPERM_ALLOW {
-					"accepted"
-				} else {
-					"rejected"
-				}
-			);
+			// debug!(
+			// 	"UPnP permission rule {} matched : port {} mapping {}",
+			// 	i,eport,
+			// 	if permary.type_0 == UPNPPERM_ALLOW {
+			// 		"accepted"
+			// 	} else {
+			// 		"rejected"
+			// 	}
+			// );
 			return permary.type_0 == UPNPPERM_ALLOW;
 		}
 		i += 1;
