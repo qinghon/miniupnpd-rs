@@ -68,7 +68,7 @@ pub fn get_src_for_route_to(dst: &IpAddr, mut src: Option<&mut IpAddr>) -> i32 {
 	msg.msg_namelen = size_of::<sockaddr_nl>() as libc::socklen_t;
 	msg.msg_iov = &mut iov;
 	msg.msg_iovlen = 1;
-	msg.msg_control = 0 as *mut libc::c_void;
+	msg.msg_control = std::ptr::null_mut::<libc::c_void>();
 	msg.msg_controllen = 0;
 	msg.msg_flags = 0;
 
@@ -139,7 +139,7 @@ pub fn get_src_for_route_to(dst: &IpAddr, mut src: Option<&mut IpAddr>) -> i32 {
 					let len = (*h).nlmsg_len;
 					let l = (len - size_of::<nlmsghdr>() as u32) as i32;
 					if l < 0 || len as i32 > status as i32 {
-						if msg.msg_flags & libc::MSG_TRUNC as i32 != 0 {
+						if msg.msg_flags & libc::MSG_TRUNC != 0 {
 							error!("Truncated message");
 						}
 						error!("malformed message: len={}", len);

@@ -453,11 +453,10 @@ pub fn readoptionsfile(fname: &str, _debug_flag: bool) -> Result<Options, io::Er
 			continue;
 		}
 
-		if let Some((key, value)) = line_.split_once(['=', ' ']) {
-			if !parse_option_line(&mut option, key, value, line_) {
+		if let Some((key, value)) = line_.split_once(['=', ' '])
+			&& !parse_option_line(&mut option, key, value, line_) {
 				error!("cannot parse option {}", line_);
 			}
-		}
 	}
 
 	Ok(option)

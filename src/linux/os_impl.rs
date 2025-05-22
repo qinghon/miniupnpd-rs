@@ -26,6 +26,12 @@ pub fn page_size() -> usize {
 
 pub struct linux;
 
+impl Default for linux {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl linux {
 	pub const fn new() -> Self {
 		Self {}

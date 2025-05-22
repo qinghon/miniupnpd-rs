@@ -1125,11 +1125,10 @@ pub(super) fn rule_set_snat(
 	rule.set_str(NFTNL_RULE_CHAIN, chain);
 
 	// Set description if provided
-	if let Some(desc) = descr {
-		if !desc.is_empty() {
+	if let Some(desc) = descr
+		&& !desc.is_empty() {
 			rule.set_data(NFTNL_RULE_USERDATA, desc.as_bytes());
 		}
-	}
 
 	// Destination IP
 	expr_add_payload(
@@ -1232,11 +1231,10 @@ pub(super) fn rule_set_dnat(
 	rule.set_str(NFTNL_RULE_CHAIN, chain);
 
 	// Set description if provided
-	if let Some(desc) = &entry.desc {
-		if !desc.is_empty() {
+	if let Some(desc) = &entry.desc
+		&& !desc.is_empty() {
 			rule.set_data(NFTNL_RULE_USERDATA, desc.as_bytes());
 		}
-	}
 
 	// Set interface if provided
 	#[cfg(feature = "rule_use_ifname")]
@@ -1381,7 +1379,7 @@ pub(super) fn rule_set_filter6(
 		0,
 		entry.iport,
 		entry.rport,
-		descr.as_deref(),
+		descr,
 	);
 	expr_add_payload(
 		&mut rule,
@@ -1432,11 +1430,10 @@ pub(super) fn rule_set_filter_common(
 	rule.set_str(NFTNL_RULE_CHAIN, chain);
 
 	// Set description if provided
-	if let Some(desc) = descr {
-		if !desc.is_empty() {
+	if let Some(desc) = descr
+		&& !desc.is_empty() {
 			rule.set_data(NFTNL_RULE_USERDATA, desc.as_bytes());
 		}
-	}
 
 	// Set interface if provided
 	#[cfg(feature = "rule_use_ifname")]

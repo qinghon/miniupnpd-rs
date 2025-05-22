@@ -357,13 +357,11 @@ fn upnp_event_process_notify(rt: &mut RtOptions, index: usize) {
 				Err(e) => {
 					error!("upnp_event_process_notify: getsockopt: {}", e);
 					rt.notify_list[index].state = EError;
-					return;
 				}
 				Ok(Some(e)) => {
 					let obj = &mut rt.notify_list[index];
 					error!("upnp_event_process_notify: connect({}): {}", obj.addr, e);
 					obj.state = EError;
-					return;
 				}
 				Ok(None) => {
 					// 连接成功,准备发送数据

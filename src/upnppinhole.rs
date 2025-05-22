@@ -20,7 +20,7 @@ pub fn reload_from_lease_file6(op: &Options, nat: &mut nat_impl, lease_file6: &s
 	let mut file = File::open(lease_file6)?;
 
 	if remove_file(lease_file6).is_err() {
-		eprintln!("Warning: Could not unlink file {}", lease_file6);
+		eprintln!("Warning: Could not unlink file {lease_file6}");
 	}
 
 	let current_time = upnp_time().as_secs();
@@ -34,11 +34,11 @@ pub fn reload_from_lease_file6(op: &Options, nat: &mut nat_impl, lease_file6: &s
 		}
 		let line = line.unwrap();
 
-		println!("Parsing lease file line '{}'", line);
+		println!("Parsing lease file line '{line}'");
 
 		let mut parts = line.split(';');
 
-		let proto = match parts.next().and_then(|s| Some(proto_atoi(s))) {
+		let proto = match parts.next().map(proto_atoi) {
 			Some(proto) => proto,
 			None => continue,
 		};
@@ -149,7 +149,7 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
-	let tmpfilename = format!("{}XXXXXX", lease_file);
+	let tmpfilename = format!("{lease_file}XXXXXX");
 
 	let mut tmp = match File::create(tmpfilename.as_str()) {
 		Ok(f) => f,
@@ -230,7 +230,7 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 		}
 	}
 
-	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
+	if fs::rename(&tmpfilename, lease_file.as_str()).is_err() {
 		error!("could not rename temporary lease file to {}", lease_file);
 		let _ = remove_file(tmpfilename.as_str());
 	}
@@ -245,7 +245,7 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
-	let tmp_filename = format!("{}XXXXXX", lease_file);
+	let tmp_filename = format!("{lease_file}XXXXXX");
 
 	let mut tmp = match File::create(tmp_filename.as_str()) {
 		Ok(f) => f,
@@ -312,9 +312,9 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 					continue;
 				}
 
-				let _ = write!(
+				let _ = writeln!(
 					tmp,
-					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}\n"
+					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}"
 				);
 			} else if !buf.starts_with(prefix_str.as_str()) {
 				let _ = writeln!(tmp, "{}", buf.as_str());
@@ -322,7 +322,7 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 		}
 	}
 
-	if let Err(_) = fs::rename(&tmp_filename, lease_file.as_str()) {
+	if fs::rename(&tmp_filename, lease_file.as_str()).is_err() {
 		error!("could not rename temporary lease file to {}", lease_file);
 		let _ = remove_file(tmp_filename.as_str());
 	}
@@ -338,7 +338,7 @@ pub fn lease_file6_expire() -> i32 {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
-	let tmpfilename = format!("{}XXXXXX", lease_file);
+	let tmpfilename = format!("{lease_file}XXXXXX");
 
 	let mut tmp = match File::create(tmpfilename.as_str()) {
 		Ok(f) => f,
@@ -409,7 +409,7 @@ pub fn lease_file6_expire() -> i32 {
 		}
 	}
 
-	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
+	if fs::rename(&tmpfilename, lease_file.as_str()).is_err() {
 		error!("could not rename temporary lease file to {}", lease_file);
 		let _ = remove_file(tmpfilename.as_str());
 	}
@@ -420,11 +420,10 @@ pub fn upnp_find_inboundpinhole<P>(nat: &mut nat_impl, filter: P) -> Option<&Pin
 where
 	P: Fn(&PinholeEntry) -> bool,
 {
-	if let Some(mut iter) = nat.get_pinhole_iter() {
-		if let Some(p) = iter.find(|x| filter(x)) {
+	if let Some(mut iter) = nat.get_pinhole_iter()
+		&& let Some(p) = iter.find(|x| filter(x)) {
 			return Some(p);
 		}
-	}
 	None
 }
 pub fn upnp_add_inboundpinhole(op: &Options, nat: &mut nat_impl, pe: &PinholeEntry, uid: &mut u16) -> i32 {
@@ -483,13 +482,7 @@ pub fn upnp_add_inboundpinhole(op: &Options, nat: &mut nat_impl, pe: &PinholeEnt
 	if uid_new >= 0 { 1 } else { -1 }
 }
 pub fn upnp_get_pinhole_info(nat: &mut nat_impl, uid: u16) -> Option<&PinholeEntry> {
-	for entry in nat.get_pinhole_iter()? {
-		if entry.index as u16 == uid {
-			return Some(entry);
-		}
-	}
-
-	None
+	(nat.get_pinhole_iter()?).find(|&entry| entry.index as u16 == uid)
 }
 
 pub fn upnp_update_inboundpinhole(nat: &mut nat_impl, uid: u16, leasetime: u32) -> i32 {

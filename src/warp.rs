@@ -355,8 +355,7 @@ pub fn recv_from_if(s: &impl AsRawFd, buf: &mut [u8]) -> io::Result<(SocketAddr,
 			}
 			(level, t) => {
 				debug!("unknown level={} type={}", level, t);
-				return Err(io::Error::new(
-					io::ErrorKind::Other,
+				return Err(io::Error::other(
 					format!("unknown level={level} type={t}"),
 				));
 			}

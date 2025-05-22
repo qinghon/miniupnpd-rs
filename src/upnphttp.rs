@@ -414,7 +414,7 @@ fn ParseHttpHeaders(h: &mut upnphttp) {
 			if !line.contains(':') {
 				continue;
 			}
-			if let Some((k, v)) = line.split_once(&[' ', '\t']) {
+			if let Some((k, v)) = line.split_once([' ', '\t']) {
 				if k.eq_ignore_ascii_case("Content-Length:") {
 					if let Ok(v) = v.parse::<u32>() {
 						h.req_contentlen = v;
@@ -440,11 +440,10 @@ fn ParseHttpHeaders(h: &mut upnphttp) {
 				} else if k.eq_ignore_ascii_case("Callback:") {
 					h.req_CallbackOff = h.req_buf.subslice_offset_stable(v);
 				} else if k.eq_ignore_ascii_case("Timeout:") {
-					if v[..7].eq_ignore_ascii_case("Second-") {
-						if let Ok(v) = v[7..v.len()].parse::<i32>() {
+					if v[..7].eq_ignore_ascii_case("Second-")
+						&& let Ok(v) = v[7..v.len()].parse::<i32>() {
 							h.req_Timeout = v as u32;
 						}
-					}
 				} else if k.eq_ignore_ascii_case("nt:") {
 					h.req_NTOff = h.req_buf.subslice_offset_stable(v);
 				}
@@ -552,15 +551,10 @@ fn checkCallbackURL(h: &mut upnphttp) -> bool {
 		// ipv6 = false;
 		if let Some(i) = u.find(":") {
 			if let Ok(addr) = Ipv4Addr::from_str(&u[0..i]) {
-				if h.clientaddr.is_ipv4()
-					&& match h.clientaddr {
+				h.clientaddr.is_ipv4() && match h.clientaddr {
 						IpAddr::V4(v4) => v4 == addr,
 						IpAddr::V6(_) => false,
-					} {
-					true
-				} else {
-					false
-				}
+					}
 			} else {
 				false
 			}

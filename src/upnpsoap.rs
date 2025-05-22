@@ -678,9 +678,9 @@ fn DeletePortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	let op = global_option.get().unwrap();
 	let rt = h.rt_options.as_mut().unwrap();
 	let proto = proto_atoi(protocol);
-	if GETFLAG!(op.runtime_flags, SECUREMODEMASK) {
-		if let Some(e) = upnp_get_redirection_infos(&rt.nat_impl, eport, proto) {
-			if h.clientaddr != IpAddr::V4(e.iaddr) {
+	if GETFLAG!(op.runtime_flags, SECUREMODEMASK)
+		&& let Some(e) = upnp_get_redirection_infos(&rt.nat_impl, eport, proto)
+			&& h.clientaddr != IpAddr::V4(e.iaddr) {
 				if cfg!(feature = "igd2") {
 					SoapError(h, 606, "Action not authorized");
 				} else {
@@ -688,8 +688,6 @@ fn DeletePortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 				}
 				return;
 			}
-		}
-	}
 
 	let r = upnp_delete_redirection(rt, eport, proto);
 
@@ -1139,7 +1137,7 @@ fn AddPinhole(h: &mut upnphttp, action: &str, ns: &str) {
 	let ltime = lease_time.map(|t| t.parse::<i32>().unwrap_or(-1)).unwrap_or(-1);
 	let proto = protocol.parse::<i32>().unwrap_or(-1);
 
-	if proto > 65535 || proto < 0 {
+	if !(0..=65535).contains(&proto) {
 		SoapError(h, 402, "Invalid Args");
 		return;
 	}
@@ -1184,7 +1182,7 @@ fn AddPinhole(h: &mut upnphttp, action: &str, ns: &str) {
 		return;
 	}
 
-	if ltime < 1 || ltime > 86400 {
+	if !(1..=86400).contains(&ltime) {
 		warn!("{}: LeaseTime={} not supported, (ip={})", action, ltime, int_ip);
 		SoapError(h, 402, "Invalid Args");
 		return;
@@ -1255,7 +1253,7 @@ fn UpdatePinhole(h: &mut upnphttp, action: &str, ns: &str) {
 	let uid = uid_str.map(|s| s.parse::<i32>().unwrap_or(-1)).unwrap_or(-1);
 	let ltime = lease_time.map(|t| t.parse::<i32>().unwrap_or(-1)).unwrap_or(-1);
 
-	if uid < 0 || uid > 65535 || ltime <= 0 || ltime > 86400 {
+	if !(0..=65535).contains(&uid) || ltime <= 0 || ltime > 86400 {
 		SoapError(h, 402, "Invalid Args");
 		return;
 	}
@@ -1354,7 +1352,7 @@ fn DeletePinhole(h: &mut upnphttp, action: &str, ns: &str) {
 	let uid_str = GetValueFromNameValueList(&data, "UniqueID");
 	let uid = uid_str.map(|s| s.parse::<i32>().unwrap_or(-1)).unwrap_or(-1);
 
-	if uid < 0 || uid > 65535 {
+	if !(0..=65535).contains(&uid) {
 		SoapError(h, 402, "Invalid Args");
 		return;
 	}
@@ -1396,7 +1394,7 @@ fn CheckPinholeWorking(h: &mut upnphttp, action: &str, ns: &str) {
 	let uid_str = GetValueFromNameValueList(&data, "UniqueID");
 	let uid = uid_str.map(|s| s.parse::<i32>().unwrap_or(-1)).unwrap_or(-1);
 
-	if uid < 0 || uid > 65535 {
+	if !(0..=65535).contains(&uid) {
 		SoapError(h, 402, "Invalid Args");
 		return;
 	}
@@ -1433,7 +1431,7 @@ fn GetPinholePackets(h: &mut upnphttp, action: &str, ns: &str) {
 	let uid_str = GetValueFromNameValueList(&data, "UniqueID");
 	let uid = uid_str.map(|s| s.parse::<i32>().unwrap_or(-1)).unwrap_or(-1);
 
-	if uid < 0 || uid > 65535 {
+	if !(0..=65535).contains(&uid) {
 		SoapError(h, 402, "Invalid Args");
 		return;
 	}

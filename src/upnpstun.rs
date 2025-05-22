@@ -294,7 +294,7 @@ pub fn perform_stun(
 	stun_port: u16,
 	restrictive_nat: &mut i32,
 ) -> io::Result<Ipv4Addr> {
-	let fds: [UdpSocket; 4];
+	
 	let mut responses_lens: [usize; 4] = [0; 4];
 	let mut responses_bufs: [[u8; 1024]; 4] = [[0; 1024]; 4];
 
@@ -303,14 +303,14 @@ pub fn perform_stun(
 
 	let mut have_mapped_addr;
 	let mut mapped_addrs_count;
-	let remote_addr;
+	
 	let mut peer_addrs: [SocketAddrV4; 4] = [SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0); 4];
 	let mut mapped_addrs: [SocketAddrV4; 4] = [SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0); 4];
 
 	let mut local_ports: [u16; 4] = [0; 4];
 	// let mut have_ext_addr: i32 = 0;
 
-	remote_addr = resolve_stun_host(stun_host, stun_port)?;
+	let remote_addr = resolve_stun_host(stun_host, stun_port)?;
 	let mut _fds: [MaybeUninit<UdpSocket>; 4] = [const { MaybeUninit::uninit() }; 4];
 	for i in 0..4 {
 		let (sock, local_port) = stun_socket()?;
@@ -319,7 +319,7 @@ pub fn perform_stun(
 		fill_request(&mut requests[i], i / 2 != 0, i % 2 != 0);
 	}
 
-	fds = unsafe { mem::transmute::<[MaybeUninit<UdpSocket>; 4], [UdpSocket; 4]>(_fds) };
+	let fds: [UdpSocket; 4] = unsafe { mem::transmute::<[MaybeUninit<UdpSocket>; 4], [UdpSocket; 4]>(_fds) };
 	info!(
 		"perform_stun: local ports {} {} {} {}",
 		local_ports[0], local_ports[1], local_ports[2], local_ports[3]
@@ -385,7 +385,7 @@ pub fn perform_stun(
 		}
 	}
 	if !have_ext_addr {
-		return Err(io::Error::new(io::ErrorKind::Other, "perform_stun: no ext addr"));
+		return Err(io::Error::other("perform_stun: no ext addr"));
 	}
 	if mapped_addrs_count < 4 {
 		notice!("perform_stun: {} response out of 4 received", mapped_addrs_count);

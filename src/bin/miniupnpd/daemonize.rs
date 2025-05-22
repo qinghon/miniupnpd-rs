@@ -6,7 +6,7 @@ use std::io::Read;
 pub fn writepidfile(fname: &str, pid: i32) -> std::io::Result<()> {
 	use arrayvec;
 	let mut p = arrayvec::ArrayString::<12>::new();
-	let _ = p.write_fmt(format_args!("{}\n", pid));
+	let _ = p.write_fmt(format_args!("{pid}\n"));
 	std::fs::write(fname, p.as_bytes())
 }
 

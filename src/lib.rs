@@ -171,10 +171,10 @@ pub enum rdr_name_type {
 	RDR_FORWARD_CHAIN_NAME = 4,
 	RDR_FAMILY_SPLIT = 5,
 }
-impl Into<u8> for rdr_name_type {
+impl From<rdr_name_type> for u8 {
 	#[inline]
-	fn into(self) -> u8 {
-		match self {
+	fn from(val: rdr_name_type) -> Self {
+		match val {
 			rdr_name_type::RDR_TABLE_NAME => 0,
 			rdr_name_type::RDR_NAT_TABLE_NAME => 1,
 			rdr_name_type::RDR_NAT_PREROUTING_CHAIN_NAME => 2,

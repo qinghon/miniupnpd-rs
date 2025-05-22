@@ -279,7 +279,7 @@ fn OpenAndConfHTTPSocket(v: &Options, port: &mut u16, ipv6: bool, runtime_flags:
 	};
 
 	let _ = socket.set_reuse_address(true);
-	if let Err(_) = socket.set_nonblocking(true) {
+	if socket.set_nonblocking(true).is_err() {
 		warn!("set_non_blocking(http): %m");
 	}
 
@@ -657,7 +657,7 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 						option.ext_stun_host = Some(host.into());
 					}
 					if let Some(port) = tokens.next() {
-						option.ext_stun_port = match u16::from_str(&port) {
+						option.ext_stun_port = match u16::from_str(port) {
 							Ok(v) => v,
 							Err(_) => {
 								print_usage(pidfilename.as_str(), optionsfile);
@@ -735,7 +735,7 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 				let ifname = match IfName::from_str(args[idx + 1].as_str()) {
 					Ok(v) => v,
 					Err(e) => {
-						eprintln!("cannot parse ifname {}", e);
+						eprintln!("cannot parse ifname {e}");
 						return -1;
 					}
 				};
@@ -870,8 +870,8 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 		error!("Error: options ext_ip= and ext_perform_stun=yes cannot be specified together");
 		return -1;
 	}
-	if let Some(IpAddr::V4(ext_ip)) = &rt.use_ext_ip_addr {
-		if addr_is_reserved(ext_ip) {
+	if let Some(IpAddr::V4(ext_ip)) = &rt.use_ext_ip_addr
+		&& addr_is_reserved(ext_ip) {
 			if GETFLAG!(option.runtime_flags, ALLOWPRIVATEIPV4MASK) {
 				warn!(
 					"IGNORED : option ext_ip contains reserved / private address {}, not public routable",
@@ -885,7 +885,6 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 				return 1;
 			}
 		}
-	}
 	let pid = if debug_flag || systemd_flag {
 		unsafe { libc::getpid() }
 	} else {
@@ -1112,7 +1111,7 @@ fn main_() {
 			}
 		}
 		match OpenAndConfSSDPNotifySockets(&v, v.runtime_flags) {
-			Ok(s) => snotify = s.into_iter().map(|x| Rc::new(x)).collect::<Vec<_>>(),
+			Ok(s) => snotify = s.into_iter().map(Rc::new).collect::<Vec<_>>(),
 			Err(_) => {
 				error!("Failed to open sockets for sending SSDP notify messages. EXITING");
 				return;
@@ -1130,13 +1129,13 @@ fn main_() {
 			Err(e) => error!("Failed to open sockets for NAT-PMP/PCP.: {}", e),
 			Ok(socks) => {
 				notice!("Listening for NAT-PMP/PCP traffic on port {} ", NATPMP_PORT);
-				snatpmp = socks.into_iter().map(|x| Rc::new(x)).collect::<Vec<_>>();
+				snatpmp = socks.into_iter().map(Rc::new).collect::<Vec<_>>();
 			}
 		}
 	}
 	#[cfg(feature = "ipv6")]
 	if GETFLAG!(v.runtime_flags, IPV6DISABLEDMASK) {
-		spcp_v6 = OpenAndConfPCPv6Socket(&v).ok().map(|x| Rc::new(x));
+		spcp_v6 = OpenAndConfPCPv6Socket(&v).ok().map(Rc::new);
 	}
 	// v.runtime_flags |= runtime_flags;
 	let _ = global_option.set(v);
@@ -1366,37 +1365,32 @@ fn main_() {
 			}
 
 			#[cfg(all(feature = "pcp", feature = "ipv6"))]
-			if let Some(spcp6d) = &spcp_v6 {
-				if readset.is_set(spcp6d.as_raw_fd()) {
+			if let Some(spcp6d) = &spcp_v6
+				&& readset.is_set(spcp6d.as_raw_fd()) {
 					let mut msg_buff_0: [u8; 1100] = [0; 1100];
 
 					let mut receiveraddr = SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0);
-					if let Ok(_) =
-						ReceiveNATPMPOrPCPPacket(spcp6d, &mut senderaddr, Some(&mut receiveraddr), &mut msg_buff_0)
+					if ReceiveNATPMPOrPCPPacket(spcp6d, &mut senderaddr, Some(&mut receiveraddr), &mut msg_buff_0).is_ok()
 					{
 						ProcessIncomingPCPPacket(rt, spcp6d, &mut msg_buff_0, &senderaddr, Some(&receiveraddr));
 					}
 				}
-			}
-			if let Some(sudpd) = &sudp {
-				if readset.is_set(sudpd.as_raw_fd()) {
+			if let Some(sudpd) = &sudp
+				&& readset.is_set(sudpd.as_raw_fd()) {
 					let op = global_option.get().unwrap();
 					ProcessSSDPRequest(&mut send_list, sudpd, op.port);
 				}
-			}
-			if let Some(sudp6d) = &sudpv6 {
-				if readset.is_set(sudp6d.as_raw_fd()) {
+			if let Some(sudp6d) = &sudpv6
+				&& readset.is_set(sudp6d.as_raw_fd()) {
 					info!("Received UDP Packet (IPv6)");
 					let op = global_option.get().unwrap();
 					ProcessSSDPRequest(&mut send_list, sudp6d, op.port);
 				}
-			}
-			if let Some(ifw) = &sifacewatcher {
-				if readset.is_set(ifw.as_raw_fd()) {
+			if let Some(ifw) = &sifacewatcher
+				&& readset.is_set(ifw.as_raw_fd()) {
 					let mut need_change = false;
 					os.ProcessInterfaceWatchNotify(&op.ext_ifname, *ifw, &mut need_change);
 				}
-			}
 
 			for h in upnphttphead.iter_mut() {
 				if readset.is_set(h.socket.as_raw_fd()) || writeset.is_set(h.socket.as_raw_fd()) {
@@ -1408,14 +1402,13 @@ fn main_() {
 					}
 				}
 			}
-			if let Some(shttpld) = &shttpl {
-				if readset.is_set(shttpld.as_raw_fd()) {
+			if let Some(shttpld) = &shttpl
+				&& readset.is_set(shttpld.as_raw_fd()) {
 					let tmp = ProcessIncomingHTTP(op, shttpld, "HTTP");
 					if let Ok(h) = tmp {
 						upnphttphead.push(h);
 					}
 				}
-			}
 			#[cfg(feature = "https")]
 			if let Some(shttpsld) = &shttpsl {
 				if readset.is_set(shttpsld.as_raw_fd()) {
@@ -1447,11 +1440,10 @@ fn main_() {
 		}
 	}
 
-	if GETFLAG!(op.runtime_flags, ENABLEUPNPMASK) {
-		if let Err(e) = SendSSDPGoodbye(&mut send_list, snotify.as_slice()) {
+	if GETFLAG!(op.runtime_flags, ENABLEUPNPMASK)
+		&& let Err(e) = SendSSDPGoodbye(&mut send_list, snotify.as_slice()) {
 			error!("Failed to broadcast good-bye notifications: {}", e);
 		}
-	}
 	finalize_sendto(&mut send_list);
 	drop(upnphttphead);
 	

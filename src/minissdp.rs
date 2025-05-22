@@ -18,7 +18,7 @@ use std::random::random;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::Relaxed;
-use std::{io, mem};
+use std::io;
 
 const VERSION_STR_MAP: [&str; 3] = ["", "1", "2"];
 const SSDP_PORT: u16 = 1900;
@@ -194,11 +194,10 @@ fn OpenAndConfSSDPNotifySocket(lan_addr_s: &lan_addr_s) -> io::Result<Socket> {
 		warn!("setsockopt(udp_notify, SO_BROADCAST): {}", e);
 		return Err(e);
 	}
-	if !lan_addr_s.ifname.is_empty() {
-		if let Err(e) = socket.bind_device(Some(lan_addr_s.ifname.as_bytes())) {
+	if !lan_addr_s.ifname.is_empty()
+		&& let Err(e) = socket.bind_device(Some(lan_addr_s.ifname.as_bytes())) {
 			warn!("setsockopt(udp6, SO_BINDTODEVICE, {}) : {}", socket.as_raw_fd(), e);
 		}
-	}
 
 	socket.bind(&socket2::SockAddr::from(SocketAddr::from((lan_addr_s.addr, 0))))?;
 
@@ -227,14 +226,13 @@ fn OpenAndConfSSDPNotifySocketIPv6(lan_addr: &lan_addr_s) -> io::Result<Socket> 
 		target_os = "watchos",
 		target_os = "linux"
 	))]
-	if !lan_addr.ifname.is_empty() {
-		if let Err(e) = socket.bind_device(Some(lan_addr.ifname.as_bytes())) {
+	if !lan_addr.ifname.is_empty()
+		&& let Err(e) = socket.bind_device(Some(lan_addr.ifname.as_bytes())) {
 			warn!(
 				"OpenAndConfSSDPNotifySocketIPv6: setsockopt(udp6, SO_BINDTODEVICE, {}) : {}",
 				lan_addr.ifname, e
 			);
 		}
-	}
 
 	socket.bind(&SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0).into())?;
 
@@ -403,9 +401,9 @@ pub fn SendSSDPNotify(
 
 	let bufr = format!(
 		"NOTIFY * HTTP/1.1\r\n\
-		HOST: {}:{}\r\n \
-		CACHE-CONTROL: max-age={}\r\n\
-		LOCATION: http://{}:{}{localtion_path}\r\n\
+		HOST: {dest_ip}:{SSDP_PORT}\r\n \
+		CACHE-CONTROL: max-age={lifetime}\r\n\
+		LOCATION: http://{host}:{http_port}{localtion_path}\r\n\
 		{https} \
 		SERVER: {server_version}\r\n\
 		NT: {nt}{suffix}\r\n\
@@ -414,13 +412,12 @@ pub fn SendSSDPNotify(
 		OPT: \"http://schemas.upnp.org/upnp/1/0/\"; ns=01\r\n\
 		01-NLS: {booid}\r\n\
 		BOOTID.UPNP.ORG: {booid}\r\n\
-		CONFIGID.UPNP.ORG: {upnp_configid}\r\n", /* UDA v1.1 */
-		dest_ip, SSDP_PORT, lifetime, host, http_port,
+		CONFIGID.UPNP.ORG: {upnp_configid}\r\n",
 	);
-	match sendto_or_schedule(send_list, s, bufr.as_bytes(), 0, dest.into()) {
+	match sendto_or_schedule(send_list, s, bufr.as_bytes(), 0, dest) {
 		Ok(l) => {
-			if l != bufr.as_bytes().len() {
-				notice!("sendto() sent {} out of {} bytes", bufr.as_bytes().len(), l)
+			if l != bufr.len() {
+				notice!("sendto() sent {} out of {} bytes", bufr.len(), l)
 			}
 		}
 		Err(e) => {
@@ -441,7 +438,7 @@ fn SendSSDPNotifies(
 ) {
 	for addr in mcast_addrs {
 		let dest = if ipv6 {
-			SocketAddrV6::new(addr.clone().into(), SSDP_PORT, 0, 0).into()
+			SocketAddrV6::new(*addr, SSDP_PORT, 0, 0).into()
 		} else {
 			SocketAddrV4::new(SSDP_MCAST_ADDR, SSDP_PORT).into()
 		};
@@ -568,7 +565,7 @@ pub fn ProcessSSDPData(
 		}
 		// ST: urn:schemas-upnp-org:service:WANIPConnection:1\r\n
 		if line[0..3].eq_ignore_ascii_case("st:") {
-			let st_ver_s = line.split(':').last();
+			let st_ver_s = line.split(':').next_back();
 			if let Some(st_ver_) = st_ver_s {
 				st_ver = st_ver_.parse::<u32>().unwrap_or(0);
 			}
@@ -786,10 +783,10 @@ pub fn ProcessSSDPData(
 		{
 			delay = random::<u32>() / (1 + (i32::MAX as u32) / (1000 * mx_value as u32));
 		}
-		if let Ok(st_uuid) = UUID::from_str(st) {
-			if &st_uuid == uuidvalue_igd.get().unwrap()
+		if let Ok(st_uuid) = UUID::from_str(st)
+			&& (&st_uuid == uuidvalue_igd.get().unwrap()
 				|| &st_uuid == uuidvalue_wan.get().unwrap()
-				|| &st_uuid == uuidvalue_wcd.get().unwrap()
+				|| &st_uuid == uuidvalue_wcd.get().unwrap())
 			{
 				debug!("ssdp:uuid (IGD/WAN/WCD) found");
 				SendSSDPResponse(
@@ -804,7 +801,6 @@ pub fn ProcessSSDPData(
 					delay,
 				);
 			}
-		}
 	}
 }
 
@@ -851,16 +847,15 @@ pub fn SendSSDPGoodbye(send_list: &mut Vec<scheduled_send>, sockets: &[Rc<Socket
 			let version_str = VERSION_STR_MAP[st.version as usize];
 			let uuid_str = format!("uuid:{}", st.uuid.get().unwrap());
 
-			if let Ok(_) = SendSSDPbyebye(send_list, s, sockaddr, st.s, version_str, uuid_str.as_str(), "::", st.s) {
+			if SendSSDPbyebye(send_list, s, sockaddr, st.s, version_str, uuid_str.as_str(), "::", st.s).is_ok() {
 				ok_cnt += 1;
 			}
 
-			if st.s.starts_with("urn:schemas-upnp-org:device") {
-				if let Ok(_) = SendSSDPbyebye(send_list, s, sockaddr, uuid_str.as_str(), "", uuid_str.as_str(), "", "")
+			if st.s.starts_with("urn:schemas-upnp-org:device")
+				&& SendSSDPbyebye(send_list, s, sockaddr, uuid_str.as_str(), "", uuid_str.as_str(), "", "").is_ok()
 				{
 					ok_cnt += 1;
 				}
-			}
 		}
 	};
 
@@ -893,7 +888,7 @@ pub fn SubmitServicesToMiniSSDPD(v: &Options, host: Ipv4Addr, port: u16) -> io::
 		}
 		let _ = buf.write_fmt(format_args!("uuid:{}::{}{}", st.uuid.get().unwrap(), st.s, st.version));
 		buf.extend_from_slice(os_version.get().unwrap().as_bytes());
-		let _ = buf.write_fmt(format_args!("http://{}:{}{}", host, port, ROOTDESC_PATH));
+		let _ = buf.write_fmt(format_args!("http://{host}:{port}{ROOTDESC_PATH}"));
 		if let Err(e) = s.write(&buf) {
 			if e.kind() == io::ErrorKind::Interrupted {
 				continue;

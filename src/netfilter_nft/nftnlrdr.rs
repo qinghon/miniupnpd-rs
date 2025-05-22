@@ -87,7 +87,7 @@ impl<'a> Iterator for NftableIter<'a> {
 		self.entry.bytes = rule.bytes;
 
 		let f = self.f;
-		f(self.backend, &mut self.entry, &rule);
+		f(self.backend, &mut self.entry, rule);
 
 		Some(unsafe { &*((&self.entry) as *const MapEntry) })
 	}
@@ -478,8 +478,8 @@ impl Backend for nftable {
 			&self.nft_table,
 			&self.nft_forward_chain,
 			self.nft_ipv6_family,
-			&ifname,
-			&entry,
+			ifname,
+			entry,
 			Some(desc.as_ref()),
 		) {
 			if self.nft_send_rule(r, NFT_MSG_NEWRULE, RULE_CHAIN_FILTER) < 0 {
@@ -497,17 +497,15 @@ impl Backend for nftable {
 	fn update_pinhole(&mut self, uid: u16, timestamp: u32) -> i32 {
 		self.refresh_nft_cache_(RULE_CHAIN_FILTER);
 
-		let label_start = format!("pinhole-{}", uid);
+		let label_start = format!("pinhole-{uid}");
 
 		let rule = self.filter_rule.iter().find(|x| x.type_0 == RULE_FILTER && x.desc.starts_with(&label_start));
 
-		if let Some(r) = rule {
-			if let Some(n) = rule_del_handle(r, self.nft_nat_family) {
-				if self.nft_send_rule(n, NFT_MSG_DELRULE, RULE_CHAIN_FILTER) < 0 {
+		if let Some(r) = rule
+			&& let Some(n) = rule_del_handle(r, self.nft_nat_family)
+				&& self.nft_send_rule(n, NFT_MSG_DELRULE, RULE_CHAIN_FILTER) < 0 {
 					return -1;
 				}
-			}
-		}
 		let rule = self
 			.filter_rule
 			.iter()
@@ -551,7 +549,7 @@ impl Backend for nftable {
 	fn delete_pinhole(&mut self, _uid: u16) -> i32 {
 		self.refresh_nft_cache_(RULE_CHAIN_FILTER);
 
-		let label_start = format!("pinhole-{}", _uid);
+		let label_start = format!("pinhole-{_uid}");
 
 		let rule = self.filter_rule.iter().find(|x| x.type_0 == RULE_FILTER && x.desc.starts_with(&label_start));
 		if rule.is_none() {

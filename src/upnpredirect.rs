@@ -70,7 +70,7 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
-	let tmpfilename = format!("{}XXXXXX", lease_file);
+	let tmpfilename = format!("{lease_file}XXXXXX");
 
 	let mut tmp = match File::create(tmpfilename.as_str()) {
 		Ok(f) => f,
@@ -85,15 +85,14 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 	let mut prefix = arrayvec::ArrayString::<60>::new();
 	let _ = FmtWrite::write_fmt(&mut prefix, format_args!("{}:{}", proto_itoa(proto), eport));
 	while let Some(Ok(l)) = fdr.read_line(&mut fd) {
-		if let Ok(line) = str::from_utf8(&l) {
-			if !line.starts_with(prefix.as_str()) {
+		if let Ok(line) = str::from_utf8(l)
+			&& !line.starts_with(prefix.as_str()) {
 				let _ = tmp.write(line.as_bytes());
 				let _ = tmp.write(b"\n");
 			}
-		}
 	}
 
-	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
+	if fs::rename(&tmpfilename, lease_file.as_str()).is_err() {
 		error!("could not rename temporary lease file to {}", lease_file);
 		let _ = remove_file(tmpfilename.as_str());
 	}
@@ -107,7 +106,7 @@ pub fn reload_from_lease_file(op: &Options, rt: &mut RtOptions, lease_file: &str
 	let mut file = File::open(lease_file)?;
 
 	if remove_file(lease_file).is_err() {
-		eprintln!("Warning: Could not unlink file {}", lease_file);
+		eprintln!("Warning: Could not unlink file {lease_file}");
 	}
 
 	let current_time = upnp_time().as_secs();
@@ -120,10 +119,10 @@ pub fn reload_from_lease_file(op: &Options, rt: &mut RtOptions, lease_file: &str
 			continue;
 		}
 		let line = line.unwrap();
-		println!("Parsing lease file line '{}'", line);
+		println!("Parsing lease file line '{line}'");
 
 		let mut parts = line.split(':');
-		let proto = match parts.next().and_then(|s| Some(proto_atoi(s))) {
+		let proto = match parts.next().map(proto_atoi) {
 			Some(proto) => proto,
 			None => continue,
 		};
@@ -175,8 +174,7 @@ pub fn reload_from_lease_file(op: &Options, rt: &mut RtOptions, lease_file: &str
 			leaseduration as u32,
 		) {
 			-1 => eprintln!(
-				"Error: Failed to redirect {} -> {}:{} protocol {}",
-				eport, iaddr, iport, proto
+				"Error: Failed to redirect {eport} -> {iaddr}:{iport} protocol {proto}"
 			),
 			-2 => {
 				lease_file_add(&op.lease_file, iaddr, eport, iport, proto, desc, timestamp);
@@ -297,7 +295,7 @@ pub fn upnp_redirect_internal(op: &Options, rt: &mut RtOptions, entry: &MapEntry
 	if !GETFLAG!(op.runtime_flags, ALLOWPRIVATEIPV4MASK) && rt.disable_port_forwarding {
 		return -1;
 	}
-	if rt.nat_impl.add_redirect_rule(&op.ext_ifname, &entry) < 0 {
+	if rt.nat_impl.add_redirect_rule(&op.ext_ifname, entry) < 0 {
 		return -1;
 	}
 	lease_file_add(
@@ -309,7 +307,7 @@ pub fn upnp_redirect_internal(op: &Options, rt: &mut RtOptions, entry: &MapEntry
 		entry.desc.as_deref(),
 		entry.timestamp as _,
 	);
-	if rt.nat_impl.add_filter_rule(&op.ext_ifname, &entry) < 0 {
+	if rt.nat_impl.add_filter_rule(&op.ext_ifname, entry) < 0 {
 		return -1;
 	}
 	if entry.timestamp > 0 {
@@ -427,8 +425,8 @@ pub fn remove_unused_rules(rt: &mut RtOptions, list: &mut Vec<rule_state>) {
 	let mut idx = 0;
 	while idx < list.len() {
 		let rule = &list[idx];
-		if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.eport == rule.eport && rule.proto == x.proto) {
-			if rule.packets == entry.packets && rule.bytes == entry.bytes {
+		if let Some(entry) = rt.nat_impl.get_redirect_rule(|x| x.eport == rule.eport && rule.proto == x.proto)
+			&& rule.packets == entry.packets && rule.bytes == entry.bytes {
 				debug!(
 					"removing unused mapping {} {}: still {} packets {} packets",
 					rule.eport, rule.proto, entry.packets, entry.bytes
@@ -438,7 +436,6 @@ pub fn remove_unused_rules(rt: &mut RtOptions, list: &mut Vec<rule_state>) {
 				list.swap_remove(idx);
 				continue;
 			}
-		}
 		idx += 1;
 	}
 

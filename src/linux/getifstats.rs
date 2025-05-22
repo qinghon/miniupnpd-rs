@@ -46,12 +46,12 @@ pub(super) fn getifstats(ifname: &IfName, data: &mut ifdata) -> i32 {
 		if count < 2 {
 			continue;
 		}
-		let line = unsafe { str::from_utf8_unchecked(&line_buf) };
+		let line = unsafe { str::from_utf8_unchecked(line_buf) };
 
 		let mut parts = line.split_whitespace();
 
-		if let Some(iface) = parts.next() {
-			if iface.trim_end_matches(':') == ifname.as_str() {
+		if let Some(iface) = parts.next()
+			&& iface.trim_end_matches(':') == ifname.as_str() {
 				data.ibytes = parts.next().and_then(|s| u64::from_str_radix(s, 10).ok()).unwrap_or(0);
 				data.ipackets = parts.next().and_then(|s| u64::from_str_radix(s, 10).ok()).unwrap_or(0);
 				for _ in 0..6 {
@@ -61,20 +61,17 @@ pub(super) fn getifstats(ifname: &IfName, data: &mut ifdata) -> i32 {
 				data.opackets = parts.next().and_then(|s| u64::from_str_radix(s, 10).ok()).unwrap_or(0);
 				break;
 			}
-		}
 	}
 
-	let speed_path = format!("/sys/class/net/{}/speed", ifname);
-	if let Ok(mut file) = File::open(&speed_path) {
-		if let Some(Ok(line)) = reader.read_line(&mut file) {
+	let speed_path = format!("/sys/class/net/{ifname}/speed");
+	if let Ok(mut file) = File::open(&speed_path)
+		&& let Some(Ok(line)) = reader.read_line(&mut file) {
 			let line = unsafe { str::from_utf8_unchecked(line) };
-			if let Ok(speed) = line.trim().parse::<u64>() {
-				if speed > 0 && speed < 65535 {
+			if let Ok(speed) = line.trim().parse::<u64>()
+				&& speed > 0 && speed < 65535 {
 					data.baudrate = speed * 1_000_000;
 				}
-			}
 		}
-	}
 
 	0
 }
