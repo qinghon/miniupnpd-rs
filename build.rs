@@ -387,10 +387,9 @@ fn load_env() {
 #[cfg(feature = "https")]
 fn fix_openssl() {
 	use openssl_sys;
-	if openssl_sys::OPENSSL_VERSION_MAJOR >= 3 {
+	if openssl_sys::OPENSSL_VERSION_TEXT.starts_with(b"OpenSSL 3") {
 		println!("cargo:rustc-cfg=openssl3");
 	}
-	
 }
 
 fn main() {
