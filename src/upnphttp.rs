@@ -605,10 +605,10 @@ fn ProcessHTTPSubscribe_upnphttp(h: &mut upnphttp, path_off: OffLen) {
 				h.req_Timeout as i32,
 			);
 			h.respflags = FLAG_TIMEOUT;
-			if sid.is_some() {
-				debug!("generated sid={}", sid.unwrap());
+			if let Some(s) = sid {
+				debug!("generated sid={}", s);
 				h.respflags |= FLAG_SID;
-				h.res_SID = sid.unwrap();
+				h.res_SID = s;
 			}
 			BuildResp_upnphttp(h, None);
 		} else {

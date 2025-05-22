@@ -142,7 +142,7 @@ pub fn check_upnp_rule_against_permissions(
 	iport: u16,
 	desc: &str,
 ) -> bool {
-	let mut i = 0;
+	// let mut i = 0;
 	for permary in permarys {
 		if match_permission(permary, eport, address, iport, desc) {
 			// debug!(
@@ -156,7 +156,7 @@ pub fn check_upnp_rule_against_permissions(
 			// );
 			return permary.type_0 == UPNPPERM_ALLOW;
 		}
-		i += 1;
+		// i += 1;
 	}
 	debug!(
 		"no permission rule matched : accept by default (n_perms={})",

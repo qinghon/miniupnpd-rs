@@ -389,7 +389,7 @@ fn upnp_event_process_notify(rt: &mut RtOptions, index: usize) {
 }
 
 pub fn upnpevents_selectfds(
-	notifylist: &mut Vec<upnp_event_notify>,
+	notifylist: &mut [upnp_event_notify],
 	readset: &mut FdSet,
 	writeset: &mut FdSet,
 	max_fd: &mut i32,
@@ -426,7 +426,7 @@ pub fn upnpevents_selectfds(
 	}
 }
 
-pub fn upnpevents_processfds(rt: &mut RtOptions, readset: &mut FdSet, writeset: &mut FdSet) {
+pub fn upnpevents_processfds(rt: &mut RtOptions, readset: &FdSet, writeset: &FdSet) {
 	let mut i = 0;
 	while i < rt.notify_list.len() {
 		let fd = rt.notify_list[i].s.as_raw_fd();

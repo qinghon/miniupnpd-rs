@@ -20,12 +20,11 @@ use std::random::random;
 
 pub const UPNP_UI4_MAX: u32 = u32::MAX;
 
-pub struct soapMethod<F>
-where
-	F: FnMut(&mut upnphttp, &str, &str),
-{
+type SoapAction = fn(&mut upnphttp, &str, &str);
+
+pub struct soapMethod {
 	pub methodName: &'static str,
-	pub methodImpl: F,
+	pub methodImpl: SoapAction,
 }
 
 #[derive(Copy, Clone)]
@@ -1528,7 +1527,7 @@ fn GetAssignedRoles(h: &mut upnphttp, action: &str, ns: &str) {
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
 
-const soapMethods: &[soapMethod<fn(&mut upnphttp, &str, &str)>] = &[
+const soapMethods: &[soapMethod] = &[
 	/* WANCommonInterfaceConfig */
 	soapMethod { methodName: "QueryStateVariable", methodImpl: QueryStateVariable },
 	soapMethod { methodName: "GetTotalBytesSent", methodImpl: GetTotalBytesSent },

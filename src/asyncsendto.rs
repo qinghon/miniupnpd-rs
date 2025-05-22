@@ -132,7 +132,7 @@ pub fn get_next_scheduled_send(send_list: &[scheduled_send], next_send: &mut Ins
 }
 
 pub fn get_sendto_fds(
-	send_list: &mut Vec<scheduled_send>,
+	send_list: &mut [scheduled_send],
 	writefds: &mut FdSet,
 	_max_fd: &mut i32,
 	now: Instant,

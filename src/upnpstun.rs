@@ -326,11 +326,11 @@ pub fn perform_stun(
 	);
 
 	let mut entry = MapEntry { iaddr: if_addr, proto: UDP, desc: Some(Rc::from("stun test")), ..Default::default() };
-	for i in 0..4 {
-		entry.eport = local_ports[i];
-		entry.iport = local_ports[i];
+	for iport in local_ports {
+		entry.eport = iport;
+		entry.iport = iport;
 		if nat_backend.add_filter_rule(if_name, &entry) < 0 {
-			error!("perform_stun:  add_filter_rule2(..., {}, ...) FAILED", local_ports[i]);
+			error!("perform_stun:  add_filter_rule2(..., {}, ...) FAILED", iport);
 		}
 	}
 	let transaction_ids: [&[u8]; 4] = [
@@ -364,8 +364,8 @@ pub fn perform_stun(
 			break;
 		}
 	}
-	for i in 0..4 {
-		nat_backend.delete_filter_rule(if_name, local_ports[i], IPPROTO_UDP as u8);
+	for iport in local_ports {
+		nat_backend.delete_filter_rule(if_name, iport, IPPROTO_UDP as u8);
 	}
 	drop(fds);
 

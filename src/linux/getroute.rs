@@ -110,7 +110,7 @@ pub fn get_src_for_route_to(dst: &IpAddr, mut src: Option<&mut IpAddr>) -> i32 {
 		nladdr.nl_family = libc::AF_NETLINK as libc::sa_family_t;
 		req.n.nlmsg_seq = 1;
 		iov.iov_len = req.n.nlmsg_len as usize;
-		let status = libc::sendmsg(fd, &mut msg, 0) as i32;
+		let status = libc::sendmsg(fd, &msg, 0) as i32;
 		if status < 0 {
 			error!("sendmsg(rtnetlink) : %m");
 			if fd > 0 {

@@ -52,13 +52,13 @@ pub(super) fn getifstats(ifname: &IfName, data: &mut ifdata) -> i32 {
 
 		if let Some(iface) = parts.next()
 			&& iface.trim_end_matches(':') == ifname.as_str() {
-				data.ibytes = parts.next().and_then(|s| u64::from_str_radix(s, 10).ok()).unwrap_or(0);
-				data.ipackets = parts.next().and_then(|s| u64::from_str_radix(s, 10).ok()).unwrap_or(0);
+				data.ibytes = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+				data.ipackets = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
 				for _ in 0..6 {
 					parts.next();
 				}
-				data.obytes = parts.next().and_then(|s| u64::from_str_radix(s, 10).ok()).unwrap_or(0);
-				data.opackets = parts.next().and_then(|s| u64::from_str_radix(s, 10).ok()).unwrap_or(0);
+				data.obytes = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+				data.opackets = parts.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
 				break;
 			}
 	}

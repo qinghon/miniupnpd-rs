@@ -351,7 +351,7 @@ pub fn update_ext_ip_addr_from_stun(
 	ext_if_name: &IfName,
 	port_forward: &mut bool,
 ) -> i32 {
-	let mut if_addr = Ipv4Addr::UNSPECIFIED;
+	let if_addr = Ipv4Addr::UNSPECIFIED;
 	let ext_addr;
 	let mut restrictive_nat: i32 = 0;
 	if v.ext_stun_host.is_none() {
@@ -387,7 +387,7 @@ pub fn update_ext_ip_addr_from_stun(
 	}
 
 	if (init_0 || *port_forward) && restrictive_nat == 0 {
-		if addr_is_reserved(&mut if_addr) {
+		if addr_is_reserved(&if_addr) {
 			info!(
 				"STUN: ext interface {} with IP address {} is now behind unrestricted full-cone NAT 1:1 with public IP address {} and firewall does not block incoming connections set by miniupnpd",
 				ext_if_name, ip, ext_addr
@@ -1277,7 +1277,7 @@ fn main_() {
 		}
 		upnpevents_selectfds(&mut rt.notify_list, &mut readset, &mut writeset, &mut max_fd);
 		let mut next_send = start_instant;
-		i = get_next_scheduled_send(&mut send_list, &mut next_send);
+		i = get_next_scheduled_send(&send_list, &mut next_send);
 		if i > 0 {
 			trace!("{} queued sendto", i);
 			i = get_sendto_fds(&mut send_list, &mut writeset, &mut max_fd, timeofday);
@@ -1311,11 +1311,11 @@ fn main_() {
 			error!("Failed to select open sockets. EXITING");
 			return;
 		} else {
-			i = try_sendto(&mut send_list, &mut writeset);
+			i = try_sendto(&mut send_list, &writeset);
 			if i < 0 {
 				error!("try_sendto failed to send {} packets", -i);
 			}
-			upnpevents_processfds(rt, &mut readset, &mut writeset);
+			upnpevents_processfds(rt, &readset, &writeset);
 			i = 0;
 			for snatpmps in snatpmp.iter() {
 				if !readset.is_set(snatpmps.as_raw_fd()) {

@@ -318,7 +318,7 @@ pub fn recv_from_if(s: &impl AsRawFd, buf: &mut [u8]) -> io::Result<(SocketAddr,
 	if n < 0 {
 		return Err(io::Error::last_os_error());
 	}
-	let senderaddr: SocketAddr;
+	
 	let mut recveraddr: IpAddr = Ipv4Addr::UNSPECIFIED.into();
 	let mut ifindex = 0;
 
@@ -365,14 +365,14 @@ pub fn recv_from_if(s: &impl AsRawFd, buf: &mut [u8]) -> io::Result<(SocketAddr,
 	let sendr = unsafe { sender_name.assume_init() };
 	let family_ptr = ptr::from_ref(&sendr) as *const u16;
 	let family = unsafe { ptr::read(family_ptr) };
-	match family as c_int {
+	let senderaddr: SocketAddr = match family as c_int {
 		libc::AF_INET => {
 			let in4 = unsafe { (&sendr as *const _ as *const libc::sockaddr_in).as_ref().unwrap() };
-			senderaddr = SocketAddrV4::new(Ip4Addr::from(in4.sin_addr).into(), u16::from_be(in4.sin_port)).into()
+			SocketAddrV4::new(Ip4Addr::from(in4.sin_addr).into(), u16::from_be(in4.sin_port)).into()
 		}
 		libc::AF_INET6 => {
 			let in6 = unsafe { (&sendr as *const _ as *const libc::sockaddr_in6).as_ref().unwrap() };
-			senderaddr = SocketAddrV6::new(
+			SocketAddrV6::new(
 				in6.sin6_addr.s6_addr.into(),
 				u16::from_be(in6.sin6_port),
 				in6.sin6_flowinfo,
@@ -383,7 +383,7 @@ pub fn recv_from_if(s: &impl AsRawFd, buf: &mut [u8]) -> io::Result<(SocketAddr,
 		_ => {
 			unreachable!();
 		}
-	}
+	};
 
 	Ok((senderaddr, Some(recveraddr), ifindex, n as usize))
 }

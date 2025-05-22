@@ -394,7 +394,7 @@ pub fn lease_file6_expire() -> i32 {
 				None => continue,
 			};
 
-			if let Ok(t) = u64::from_str_radix(timestamp, 10) {
+			if let Ok(t) = timestamp.parse::<u64>() {
 				debug!("Expire: timestamp is '{}'", t);
 				debug!("Expire: current timestamp is '{}'", current_unix_time);
 				if t > 0 && current_unix_time > t || t == 0 {

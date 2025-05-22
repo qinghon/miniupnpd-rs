@@ -47,7 +47,7 @@ fn lease_file_add(
 			return -1;
 		}
 	};
-	let timestamp = timestamp;
+	// let timestamp = timestamp;
 	if timestamp != 0 {
 		// timestamp -= upnp_time().as_secs() as u32;
 	};
