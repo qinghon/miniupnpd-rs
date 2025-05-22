@@ -30,7 +30,7 @@ pub fn getifaddr(ifname: &IfName, addr: &mut Ipv4Addr, mask: Option<&mut Ipv4Add
 		return GETIFADDR_BAD_ARGS as _;
 	}
 	unsafe {
-		let s = socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
+		let s = socket(AF_INET, libc::SOCK_DGRAM, 0);
 		if s < 0 {
 			error!("socket(PF_INET, SOCK_DGRAM): %m");
 			return GETIFADDR_SOCKET_ERROR as _;
@@ -55,7 +55,7 @@ pub fn getifaddr(ifname: &IfName, addr: &mut Ipv4Addr, mask: Option<&mut Ipv4Add
 				break 'free GETIFADDR_IF_DOWN as _;
 			}
 			strncpy(ifr.ifr_name.as_mut_ptr(), ifname.as_ptr(), libc::IFNAMSIZ - 1);
-			if ioctl(s, libc::SIOCGIFADDR as _, &mut ifr as *mut _, size_of::<libc::ifreq>()) < 0 {
+			if ioctl(s, libc::SIOCGIFADDR as _, &mut ifr as *mut _, size_of::<ifreq>()) < 0 {
 				let errno = *__errno_location();
 				let r = if errno == libc::EADDRNOTAVAIL {
 					GETIFADDR_NO_ADDRESS
@@ -104,7 +104,7 @@ impl Drop for IfaddrIter<'_> {
 }
 impl IfaddrIter<'_> {
 	pub(crate) fn new<'a>() -> Option<IfaddrIter<'a>> {
-		let mut ifap: *mut libc::ifaddrs = ptr::null_mut();
+		let mut ifap: *mut ifaddrs = ptr::null_mut();
 		if unsafe { libc::getifaddrs(&mut ifap) } < 0 {
 			error!("getifaddrs: %m");
 			return None;
@@ -134,7 +134,7 @@ impl<'a> Iterator for IfaddrIter<'a> {
 		}
 
 		let (addr, mask): (IpAddr, IpAddr) = match unsafe { &*ife.ifa_addr }.sa_family as _ {
-			libc::AF_INET => {
+			AF_INET => {
 				let addr = unsafe { &*(ife.ifa_addr as *const sockaddr_in) };
 				let mask = unsafe { &*(ife.ifa_netmask as *const sockaddr_in) };
 				(
@@ -143,7 +143,7 @@ impl<'a> Iterator for IfaddrIter<'a> {
 				)
 			}
 			#[cfg(feature = "ipv6")]
-			libc::AF_INET6 => {
+			AF_INET6 => {
 				let addr = unsafe { &*(ife.ifa_addr as *const libc::sockaddr_in6) };
 				let mask = unsafe { &*(ife.ifa_netmask as *const libc::sockaddr_in6) };
 

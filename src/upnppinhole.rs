@@ -3,6 +3,7 @@ use crate::upnpglobalvars::global_option;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
 use crate::warp::StackBufferReader;
 use crate::{Backend, PinholeEntry, nat_impl};
+use std::fmt::Write as FmtWrite;
 use std::fs::{File, remove_file};
 use std::io::Write;
 use std::net::Ipv6Addr;
@@ -120,18 +121,17 @@ fn lease_file6_add(pinhole: &PinholeEntry, uid: i32, lease_file6: &str) -> i32 {
 	//     // timestamp -= upnp_time().as_secs() as u32;
 	// };
 	let uid = if uid >= 0 { uid as u16 } else { pinhole.index as u16 };
-
+	let mut raddr = arrayvec::ArrayString::<60>::new();
+	if !pinhole.raddr.is_unspecified() {
+		let _ = FmtWrite::write_fmt(&mut raddr, format_args!("{}", pinhole.raddr));
+	}
 	let _ = writeln!(
 		fd,
 		"{};{};{};{};{};{};{};{}",
 		proto_itoa(pinhole.proto),
 		pinhole.iaddr,
 		pinhole.iport,
-		if pinhole.raddr.is_unspecified() {
-			"".to_string()
-		} else {
-			format!("{}", pinhole.raddr)
-		},
+		raddr,
 		pinhole.rport,
 		uid,
 		timestamp,
@@ -145,13 +145,13 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::File::open(lease_file.as_str()) {
+	let mut fd = match File::open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
 	let tmpfilename = format!("{}XXXXXX", lease_file);
 
-	let mut tmp = match fs::File::create(tmpfilename.as_str()) {
+	let mut tmp = match File::create(tmpfilename.as_str()) {
 		Ok(f) => f,
 		Err(_) => {
 			error!("could not open temporary lease file");
@@ -169,7 +169,10 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 	let mut buf = [0; 128];
 	let mut fdr = StackBufferReader::new(&mut buf);
 	// let mut buf = String::with_capacity(128);
-	let uid_str = format!("{}", uid);
+
+	let mut uid_str = arrayvec::ArrayString::<60>::new();
+
+	let _ = FmtWrite::write_fmt(&mut uid_str, format_args!("{uid}"));
 	while let Some(Ok(line_buf)) = fdr.read_line(&mut fd) {
 		if let Ok(buf) = str::from_utf8(line_buf) {
 			// if l == 0 {
@@ -213,11 +216,10 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 				None => break,
 			};
 
-			if uid == uid_str {
+			if uid == uid_str.as_str() {
 				let _ = writeln!(
 					tmp,
-					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{};{desc}",
-					format!("{}", timestamp).as_str()
+					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}",
 				);
 			} else {
 				let _ = writeln!(
@@ -230,7 +232,7 @@ fn lease_file6_update(uid: i32, leaseduration: u32) -> i32 {
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
 		error!("could not rename temporary lease file to {}", lease_file);
-		let _ = fs::remove_file(tmpfilename.as_str());
+		let _ = remove_file(tmpfilename.as_str());
 	}
 	0
 }
@@ -239,13 +241,13 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::File::open(lease_file.as_str()) {
+	let mut fd = match File::open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
 	let tmp_filename = format!("{}XXXXXX", lease_file);
 
-	let mut tmp = match fs::File::create(tmp_filename.as_str()) {
+	let mut tmp = match File::create(tmp_filename.as_str()) {
 		Ok(f) => f,
 		Err(_) => {
 			error!("could not open temporary lease file");
@@ -256,9 +258,14 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
 	let mut buf = [0; 128];
 	let mut fdr = StackBufferReader::new(&mut buf);
-	let uid_str = format!("{}", uid);
+	let mut uid_str = arrayvec::ArrayString::<60>::new();
+	let mut prefix_str = arrayvec::ArrayString::<60>::new();
 
-	let prefix_str = format!("{};{};{}", proto_itoa(proto), int_client, int_port);
+	let _ = FmtWrite::write_fmt(&mut uid_str, format_args!("{uid}"));
+	let _ = FmtWrite::write_fmt(
+		&mut prefix_str,
+		format_args!("{};{};{}", proto_itoa(proto), int_client, int_port),
+	);
 
 	while let Some(Ok(line_buf)) = fdr.read_line(&mut fd) {
 		if let Ok(buf) = str::from_utf8(line_buf) {
@@ -301,7 +308,7 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 					None => break,
 				};
 
-				if uid == uid_str {
+				if uid == uid_str.as_str() {
 					continue;
 				}
 
@@ -310,14 +317,14 @@ fn lease_file6_remove(int_client: Ipv6Addr, int_port: u16, proto: u8, uid: i32) 
 					"{proto};{int_client};{int_port};{rem_client};{rem_port};{uid};{timestamp};{desc}\n"
 				);
 			} else if !buf.starts_with(prefix_str.as_str()) {
-				let _ = write!(tmp, "{}\n", buf.as_str());
+				let _ = writeln!(tmp, "{}", buf.as_str());
 			}
 		}
 	}
 
 	if let Err(_) = fs::rename(&tmp_filename, lease_file.as_str()) {
 		error!("could not rename temporary lease file to {}", lease_file);
-		let _ = fs::remove_file(tmp_filename.as_str());
+		let _ = remove_file(tmp_filename.as_str());
 	}
 	0
 }
@@ -327,13 +334,13 @@ pub fn lease_file6_expire() -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::File::open(lease_file.as_str()) {
+	let mut fd = match File::open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
 	let tmpfilename = format!("{}XXXXXX", lease_file);
 
-	let mut tmp = match fs::File::create(tmpfilename.as_str()) {
+	let mut tmp = match File::create(tmpfilename.as_str()) {
 		Ok(f) => f,
 		Err(_) => {
 			error!("could not open temporary lease file");
@@ -404,7 +411,7 @@ pub fn lease_file6_expire() -> i32 {
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
 		error!("could not rename temporary lease file to {}", lease_file);
-		let _ = fs::remove_file(tmpfilename.as_str());
+		let _ = remove_file(tmpfilename.as_str());
 	}
 	0
 }

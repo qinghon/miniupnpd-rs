@@ -173,7 +173,7 @@ static rootDesc: &[XMLElt] = &[
 	// 0
 	XMLElt { eltname: root_device, data: XMLEltData::value(1, 2) },
 	XMLElt { eltname: "specVersion", data: XMLEltData::value(3, 2) },
-	#[cfg(any(feature = "dp_service"))]
+	#[cfg(feature = "dp_service")]
 	XMLElt { eltname: "device", data: XMLEltData::value(5, 13) },
 	#[cfg(not(any(feature = "dp_service")))]
 	XMLElt { eltname: "device", data: XMLEltData::value(5, 12) },
@@ -456,7 +456,7 @@ const L3FActions: [action; 2] = [
 ];
 const L3FVars: [stateVar; 1] = [stateVar {
 	name: "DefaultConnectionService",
-	itype: 0 | sendEvent,
+	itype: sendEvent,
 	ieventvalue: DEFAULTCONNECTIONSERVICE_MAGICALVALUE,
 	..stateVar::default()
 }];
@@ -913,7 +913,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 
 				EXTERNALIPADDRESS_MAGICALVALUE => {
 					if let Some(ext_ip) = &rt.use_ext_ip_addr {
-						result.write_fmt(format_args!("{}", ext_ip)).unwrap();
+						result.write_fmt(format_args!("{ext_ip}")).unwrap();
 					} else {
 						let op = global_option.get().unwrap();
 						let ext_if_name = &op.ext_ifname;
@@ -922,7 +922,7 @@ fn genEventVars(rt: &mut RtOptions, s: &serviceDesc) -> Option<String> {
 							if !GETFLAG!(op.runtime_flags, ALLOWPRIVATEIPV4MASK) && addr_is_reserved(&addr) {
 								result.push_str("0.0.0.0");
 							} else {
-								result.write_fmt(format_args!("{}", addr)).unwrap();
+								result.write_fmt(format_args!("{addr}")).unwrap();
 							}
 						} else {
 							result.push_str("0.0.0.0");

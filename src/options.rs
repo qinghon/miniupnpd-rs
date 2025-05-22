@@ -168,8 +168,8 @@ pub fn parselanaddr(lan_addr: &mut lan_addr_s, lan: &str, _runtime_flag: u32) ->
 
 		#[cfg(feature = "ipv6")]
 		if r == GETIFADDR_NO_ADDRESS as _ {
-			eprintln!("interface \"{}\" has no IPv4 address", lan);
-			notice!("interface \"{}\" has no IPv4 address", lan);
+			eprintln!("interface \"{lan}\" has no IPv4 address");
+			notice!("interface \"{lan}\" has no IPv4 address");
 			lan_addr.mask = u32::MAX.into();
 		} else if r != GETIFADDR_OK as _ {
 			error!("error getting address for interface {}\n", lan);
@@ -240,7 +240,7 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 				Err(_) => return false,
 			};
 		}
-		"ext_ip" => match Ipv4Addr::from_str(&value) {
+		"ext_ip" => match Ipv4Addr::from_str(value) {
 			Ok(ip) => {
 				op.ext_ip = Some(ip);
 			}
@@ -260,7 +260,7 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 			op.ext_stun_host = Some(value.into());
 		}
 		"ext_stun_port" => {
-			op.ext_stun_port = u16::from_str(&value).unwrap_or(0);
+			op.ext_stun_port = u16::from_str(value).unwrap_or(0);
 		}
 		"listening_ip" => {
 			let mut lan_addr = Default::default();
@@ -271,7 +271,7 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 			}
 		}
 		#[cfg(feature = "ipv6")]
-		"ipv6_listening_ip" => match Ipv6Addr::from_str(&value) {
+		"ipv6_listening_ip" => match Ipv6Addr::from_str(value) {
 			Ok(ip) => {
 				op.ipv6_listening_ip = Some(ip);
 			}
@@ -342,7 +342,7 @@ fn parse_option_line(op: &mut Options, key: &str, value: &str, line: &str) -> bo
 				op.uuid = v;
 			}
 			Err(e) => {
-				eprintln!("parse uuid \"{}\" {}", value, e);
+				eprintln!("parse uuid \"{value}\" {e}");
 			}
 		},
 		"serial" => op.serial = value.into(),

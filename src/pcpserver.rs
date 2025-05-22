@@ -241,18 +241,18 @@ const PCP_OPTION_FILTER: pcp_options = 3;
 const PCP_OPTION_FLOW_PRIORITY: pcp_options = 4; /*TODO: change it to correct value*/
 
 enum PcpOpCode {
-	ANNOUNCE = 0,
-	MAP,
-	PEER,
-	SADSCP,
+	Announce = 0,
+	Map,
+	Peer,
+	Sadscp,
 }
 impl fmt::Display for PcpOpCode {
 	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
 		match self {
-			PcpOpCode::ANNOUNCE => write!(f, "ANNOUNCE"),
-			PcpOpCode::MAP => write!(f, "MAP"),
-			PcpOpCode::PEER => write!(f, "PEER"),
-			PcpOpCode::SADSCP => write!(f, "SADSCP"),
+			PcpOpCode::Announce => write!(f, "ANNOUNCE"),
+			PcpOpCode::Map => write!(f, "MAP"),
+			PcpOpCode::Peer => write!(f, "PEER"),
+			PcpOpCode::Sadscp => write!(f, "SADSCP"),
 		}
 	}
 }
@@ -471,7 +471,7 @@ fn CheckExternalAddress(pcp_msg_info: &mut pcp_info) -> bool {
 					addr = v4addr.to_ipv6_mapped();
 				}
 				IpAddr::V6(v6addr) => {
-					addr = v6addr.clone();
+					addr = *v6addr;
 				}
 			}
 		} else if cfg!(feature = "ipv6") && !ipv4 && op.ext_ifname != op.ext_ifname6 {
@@ -550,7 +550,7 @@ fn CreatePCPMap_NAT(pcp_msg_info: &mut pcp_info) -> i32 {
 			return PCP_ERR_NO_RESOURCES as i32;
 		}
 
-		if (&pcp_msg_info.mapped_ip).is_ipv4_mapped()
+		if pcp_msg_info.mapped_ip.is_ipv4_mapped()
 			&& !check_upnp_rule_against_permissions(
 				&op.upnpperms,
 				pcp_msg_info.ext_port,
@@ -832,14 +832,13 @@ fn ValidatePCPMsg(pcp_msg_info: &mut pcp_info) -> i32 {
 		return 0;
 	}
 
-	if pcp_msg_info.pfailure_present != 0 {
-		if (pcp_msg_info.ext_ip.is_unspecified()
-			|| ((&pcp_msg_info.ext_ip).is_ipv4_mapped() && pcp_msg_info.ext_ip.segments()[3] == 0))
-			&& pcp_msg_info.ext_port == 0
-		{
-			pcp_msg_info.result_code = PCP_ERR_MALFORMED_OPTION;
-			return 0;
-		}
+	if pcp_msg_info.pfailure_present != 0
+		&& (pcp_msg_info.ext_ip.is_unspecified()
+			|| (pcp_msg_info.ext_ip.is_ipv4_mapped() && pcp_msg_info.ext_ip.segments()[3] == 0))
+		&& pcp_msg_info.ext_port == 0
+	{
+		pcp_msg_info.result_code = PCP_ERR_MALFORMED_OPTION;
+		return 0;
 	}
 
 	if !CheckExternalAddress(pcp_msg_info) {
@@ -887,7 +886,7 @@ fn CreatePCPPeer_NAT(p: &mut pcp_info) -> i32 {
 		raddr: p.peer_ip.to_ipv4_mapped().unwrap(),
 		rport: p.peer_port,
 		eaddr: p.ext_ip.to_ipv4_mapped().unwrap(),
-		eport: eport,
+		eport,
 		iaddr: p.int_ip.to_ipv4_mapped().unwrap(),
 		iport: p.int_port,
 		proto,
@@ -1244,7 +1243,7 @@ fn createPCPResponse(response: &mut [u8], pcp_msg_info: &mut pcp_info) {
 	let rt = pcp_msg_info.rt.as_mut().unwrap();
 
 	if rt.epoch_origin.is_zero() {
-		rt.epoch_origin = *(startup_time.get().clone().unwrap());
+		rt.epoch_origin = *(startup_time.get().unwrap());
 	}
 	response[8..12].copy_from_slice(((upnp_time() - rt.epoch_origin).as_secs() as u32).to_be_bytes().as_ref());
 	match pcp_msg_info.result_code {
@@ -1269,7 +1268,7 @@ fn createPCPResponse(response: &mut [u8], pcp_msg_info: &mut pcp_info) {
 			response[6] = 0;
 			response[7] = 30;
 		}
-		PCP_SUCCESS | _ => {
+		_ => {
 			copy_to_response!(response, 0, 4, &pcp_msg_info.lifetime.to_be_bytes());
 		}
 	}
@@ -1405,7 +1404,7 @@ pub fn ProcessIncomingPCPPacket(
 }
 
 #[cfg(feature = "ipv6")]
-pub fn OpenAndConfPCPv6Socket(v: &Options) -> io::Result<socket2::Socket> {
+pub fn OpenAndConfPCPv6Socket(v: &Options) -> io::Result<Socket> {
 	// Create a new IPv6 UDP socket
 	let socket = Socket::new(
 		socket2::Domain::IPV6,
@@ -1424,7 +1423,7 @@ pub fn OpenAndConfPCPv6Socket(v: &Options) -> io::Result<socket2::Socket> {
 		if let Err(e) = socket.bind_device(Some(ifname.as_bytes())) {
 			warn!(
 				"OpenAndConfPCPv6Socket: udp6 bindtodevice {}: {}",
-				(&v.listening_ip[0]).ifname.as_str(),
+				v.listening_ip[0].ifname.as_str(),
 				e
 			);
 		}
@@ -1438,7 +1437,7 @@ pub fn OpenAndConfPCPv6Socket(v: &Options) -> io::Result<socket2::Socket> {
 			libc::IPPROTO_IPV6,
 			libc::IPV6_RECVPKTINFO,
 			&recv_pktinfo as *const _ as *const libc::c_void,
-			std::mem::size_of_val(&recv_pktinfo) as libc::socklen_t,
+			size_of_val(&recv_pktinfo) as libc::socklen_t,
 		) < 0
 		{
 			warn!("OpenAndConfPCPv6Socket: setsockopt(IPV6_RECVPKTINFO): %m");

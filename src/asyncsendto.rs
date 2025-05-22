@@ -42,7 +42,7 @@ pub fn send_from_to(
 		let mut c = [0u8; unsafe { libc::CMSG_SPACE(size_of::<libc::in6_pktinfo>() as c_uint) } as usize];
 
 		unsafe {
-			let cmsg_ptr = (&mut c).as_mut_ptr() as *mut libc::cmsghdr;
+			let cmsg_ptr = c.as_mut_ptr() as *mut libc::cmsghdr;
 			let ipi6 = (cmsg_ptr.add(1) as *mut libc::in6_pktinfo).as_mut().unwrap();
 			let cmsg = cmsg_ptr.as_mut().unwrap();
 			cmsg.cmsg_level = libc::IPPROTO_IPV6;
@@ -118,7 +118,7 @@ pub fn sendto_or_schedule2(
 	sendto_schedule2(send_list, sockfd, buf, flags, dest_addr, src_addr, 0)
 }
 
-pub fn get_next_scheduled_send(send_list: &mut Vec<scheduled_send>, next_send: &mut Instant) -> i32 {
+pub fn get_next_scheduled_send(send_list: &[scheduled_send], next_send: &mut Instant) -> i32 {
 	if send_list.is_empty() {
 		return 0;
 	}
@@ -222,7 +222,7 @@ pub fn finalize_sendto(send_list: &mut Vec<scheduled_send>) {
 				Err(e) => match e.kind() {
 					ErrorKind::WouldBlock => {
 						if elt.socket.as_raw_fd() > max_fd {
-							max_fd = elt.socket.as_raw_fd() as i32;
+							max_fd = elt.socket.as_raw_fd();
 						}
 						write_fds.set(elt.socket.as_raw_fd());
 						idx += 1;

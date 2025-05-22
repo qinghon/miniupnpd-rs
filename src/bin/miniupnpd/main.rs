@@ -1,7 +1,9 @@
+#![no_main]
 #![feature(random)]
 #![feature(ip)]
 #![feature(const_format_args)]
 #![feature(str_as_str)]
+#![feature(let_chains)]
 #![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use daemonize::checkforrunning;
@@ -30,7 +32,7 @@ use miniupnpd_rs::upnputils::{get_lan_for_peer, upnp_gettimeofday, upnp_time};
 use miniupnpd_rs::uuid::UUID;
 use miniupnpd_rs::warp::{FdSet, IfName, make_timeval, select, sockaddr_to_v4};
 use miniupnpd_rs::*;
-use miniupnpd_rs::{Backend, OS, options};
+use miniupnpd_rs::{Backend, OS};
 use miniupnpd_rs::{debug, error, info, nat_impl, notice};
 use socket2::Socket;
 use std::cmp::max;
@@ -260,10 +262,10 @@ fn gen_current_notify_interval(notify_interval: u32) -> u32 {
 }
 fn OpenAndConfHTTPSocket(v: &Options, port: &mut u16, ipv6: bool, runtime_flags: &mut u32) -> io::Result<Socket> {
 	let socket = if ipv6 {
-		match socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::STREAM, None) {
+		match Socket::new(socket2::Domain::IPV6, socket2::Type::STREAM, None) {
 			Ok(s) => s,
 			Err(e) => {
-				if e.kind() == io::ErrorKind::Unsupported {
+				if e.kind() == ErrorKind::Unsupported {
 					warn!("socket(PF_INET6, ...) failed with EAFNOSUPPORT, disabling IPv6");
 					SETFLAG!(*runtime_flags, IPV6DISABLEDMASK);
 					Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)?
@@ -273,7 +275,7 @@ fn OpenAndConfHTTPSocket(v: &Options, port: &mut u16, ipv6: bool, runtime_flags:
 			}
 		}
 	} else {
-		socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)?
+		Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)?
 	};
 
 	let _ = socket.set_reuse_address(true);
@@ -294,7 +296,7 @@ fn OpenAndConfHTTPSocket(v: &Options, port: &mut u16, ipv6: bool, runtime_flags:
 	socket.listen(5)?;
 
 	if *port == 0 {
-		*port = socket.local_addr().unwrap().as_socket().unwrap().port();
+		*port = socket.local_addr()?.as_socket().unwrap().port();
 	}
 	Ok(socket)
 }
@@ -383,8 +385,6 @@ pub fn update_ext_ip_addr_from_stun(
 			return 1;
 		}
 	}
-
-	// ext_addr_str.push_str(&format!("{}", ext_addr));
 
 	if (init_0 || *port_forward) && restrictive_nat == 0 {
 		if addr_is_reserved(&mut if_addr) {
@@ -503,7 +503,7 @@ pub fn complete_uuidvalues(v: &Options) {
 }
 
 fn set_os_version() {
-	let mut utsname: libc::utsname = unsafe { std::mem::zeroed() };
+	let mut utsname: libc::utsname = unsafe { mem::zeroed() };
 	if unsafe { libc::uname(&mut utsname) < 0 } {
 		error!("uname(): %m");
 		let _ = os_version.set("unknown".into());
@@ -594,7 +594,7 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 	}
 	log::openlog(c"miniupnpd", openlog_option, log::LOG_DAEMON);
 
-	let ret = options::readoptionsfile(optionsfile, debug_flag);
+	let ret = readoptionsfile(optionsfile, debug_flag);
 	let mut option = match ret {
 		Ok(o) => o,
 		Err(_) => {
@@ -739,7 +739,7 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 						return -1;
 					}
 				};
-				option.listening_ip.push(lan_addr_s { ifname: ifname, ..Default::default() });
+				option.listening_ip.push(lan_addr_s { ifname, ..Default::default() });
 				idx += 1;
 			}
 			#[cfg(feature = "ipv6")]
@@ -774,7 +774,7 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 			}
 			b'd' => {}
 			b'w' => {
-				option.presentation_url = Some((args[idx + 1].as_str()).into());
+				option.presentation_url = Some(args[idx + 1].as_str().into());
 				idx += 1;
 			}
 			b'B' => {
@@ -794,7 +794,7 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 				idx += 1;
 			}
 			b'A' => {
-				let p = match options::read_permission_line(args[idx + 1].as_str()) {
+				let p = match read_permission_line(args[idx + 1].as_str()) {
 					Ok(p) => p,
 					Err(_) => {
 						print_usage(pidfilename.as_str(), optionsfile);
@@ -942,7 +942,7 @@ fn init(v: &mut Option<Options>, rt: &mut RtOptions, rtv: &mut runtime_vars, pid
 	v.replace(option);
 	0
 }
-fn main() {
+fn main_() {
 	let mut i: i32 = 0;
 	let mut shttpl: Option<Socket> = None;
 	#[cfg(feature = "https")]
@@ -1076,7 +1076,7 @@ fn main() {
 		notice!("HTTP listening on port {} ", v.port);
 		#[cfg(feature = "ipv6")]
 		if !GETFLAG!(v.runtime_flags, IPV6DISABLEDMASK) {
-			match miniupnpd_rs::getifaddr::find_ipv6_addr(&v.listening_ip[0].ifname) {
+			match find_ipv6_addr(&v.listening_ip[0].ifname) {
 				Some(addr) => {
 					notice!("HTTP IPv6 address given to control points : {}", addr);
 					let _ = ipv6_addr_for_http_with_brackets.set(addr);
@@ -1454,15 +1454,19 @@ fn main() {
 	}
 	finalize_sendto(&mut send_list);
 	drop(upnphttphead);
-
-	if GETFLAG!(op.runtime_flags, ENABLEUPNPMASK) {}
-	if !pidfilename.is_empty() {
-		if let Err(e) = fs::remove_file(pidfilename.as_str()) {
+	
+	if !pidfilename.is_empty() && let Err(e) = fs::remove_file(pidfilename.as_str()) {
+		
 			error!("Failed to remove pidfile {}: {}", pidfilename, e);
-		}
+		
 	}
 
 	rt_options.nat_impl.shutdown_redirect();
 
 	unsafe { libc::closelog() };
+}
+#[unsafe(no_mangle)]
+extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
+	main_();
+	0
 }

@@ -93,8 +93,6 @@ impl<'a> Iterator for NftableIter<'a> {
 	}
 }
 
-
-
 fn fill_entry_redirect(n: &nftable, entry: &mut MapEntry, r: &rule_t) {
 	entry.eport = r.dport;
 	entry.iaddr = r.nat_addr;
@@ -117,7 +115,6 @@ fn fill_entry_peer(_n: &nftable, entry: &mut MapEntry, r: &rule_t) {
 	entry.raddr = r.saddr;
 	entry.rport = r.sport;
 	entry.desc = Some(r.desc.clone())
-
 }
 
 impl Backend for nftable {
@@ -336,7 +333,7 @@ impl Backend for nftable {
 				ret
 			}
 		} else {
-			-libc::ENOMEM
+			-ENOMEM
 		}
 	}
 
@@ -344,17 +341,17 @@ impl Backend for nftable {
 		if let Some(r) = rule_set_filter(
 			&self.nft_table,
 			&self.nft_forward_chain,
-			self.nft_nat_family as u8,
+			self.nft_nat_family,
 			ifname,
 			entry,
 		) {
 			self.nft_send_rule(r, NFT_MSG_NEWRULE, RULE_CHAIN_FILTER)
 		} else {
-			-libc::ENOMEM
+			-ENOMEM
 		}
 	}
 
-	fn delete_filter_rule(&mut self, ifname: &warp::IfName, lport: u16, proto: u8) -> i32 {
+	fn delete_filter_rule(&mut self, ifname: &IfName, lport: u16, proto: u8) -> i32 {
 		self.refresh_nft_cache_(RULE_CHAIN_FILTER);
 
 		let rule = self

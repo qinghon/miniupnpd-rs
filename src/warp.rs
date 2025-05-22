@@ -257,7 +257,7 @@ pub fn select(
 ) -> io::Result<isize> {
 	match unsafe {
 		libc::select(
-			nfds as libc::c_int,
+			nfds as c_int,
 			to_fdset_ptr(readfds),
 			to_fdset_ptr(writefds),
 			to_fdset_ptr(errorfds),
@@ -357,7 +357,7 @@ pub fn recv_from_if(s: &impl AsRawFd, buf: &mut [u8]) -> io::Result<(SocketAddr,
 				debug!("unknown level={} type={}", level, t);
 				return Err(io::Error::new(
 					io::ErrorKind::Other,
-					format!("unknown level={} type={}", level, t),
+					format!("unknown level={level} type={t}"),
 				));
 			}
 		}

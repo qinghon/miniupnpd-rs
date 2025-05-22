@@ -144,7 +144,7 @@ fn wait_for_stun_responses(
 			Some(&mut timeout),
 		) {
 			Err(e) => {
-				if e.kind() == std::io::ErrorKind::Interrupted {
+				if e.kind() == io::ErrorKind::Interrupted {
 					continue;
 				} else {
 					error!("wait_for_stun_responses: select failed: {}", e);
@@ -370,8 +370,8 @@ pub fn perform_stun(
 	drop(fds);
 
 	let mut have_ext_addr = false;
-	have_mapped_addr = 0 as i32;
-	mapped_addrs_count = 0 as i32;
+	have_mapped_addr = 0;
+	mapped_addrs_count = 0;
 	let mut ext_addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0);
 	for i in 0..4 {
 		if let Some(addr) = parse_stun_response(&responses_bufs[i][0..responses_lens[i]]) {

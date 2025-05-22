@@ -115,7 +115,7 @@ impl<'a> Iterator for IptableIter<'a> {
 			let match_ = e.add(1) as *const xt_entry_match;
 			let match_ref = &*match_;
 			let target = &*(e.byte_add(entry_ref.target_offset as usize) as *const xt_entry_target);
-			
+
 			let filler = self.filler;
 			self.entry = Default::default();
 			self.entry.proto = entry_ref.ip.proto as _;
@@ -662,7 +662,6 @@ fn last_iptc_error() -> &'static str {
 	}
 }
 
-
 fn fill_from_peer(
 	backend: &iptable,
 	entry: &mut MapEntry,
@@ -676,7 +675,7 @@ fn fill_from_peer(
 	unsafe {
 		if xt_match.u.user.name.starts_with(mem::transmute(b"tcp\0".as_ref())) {
 			let info = &*(xt_match.data.as_ptr() as *const xt_tcp);
-			
+
 			entry.rport = info.dpts[0];
 			entry.iport = info.spts[0];
 		} else {
@@ -684,11 +683,10 @@ fn fill_from_peer(
 			entry.rport = info.dpts[0];
 			entry.iport = info.spts[0];
 		};
-		
 	}
 	entry.raddr = Ipv4Addr::from(e.ip.dst.s_addr);
 	entry.iaddr = Ipv4Addr::from(e.ip.src.s_addr);
-	
+
 	unsafe {
 		entry.eport = u16::from_be(mr.range[0].min.all);
 	}
@@ -996,15 +994,15 @@ fn iptc_init_verify_and_append(table: &CStr, chain: &CStr, entry: *const ipt_ent
 	unsafe {
 		let ret = 'free: {
 			if iptc_is_chain(chain.as_ptr(), h) == 0 {
-				println!("{}: chain {} not found", caller, chain.to_string_lossy());
+				error!("{}: chain {} not found", caller, chain.to_str().unwrap());
 				break 'free -1;
 			}
 			if iptc_append_entry(chain.as_ptr(), entry, h) == 0 {
-				println!("{}: iptc_append_entry() error : {}", caller, last_iptc_error());
+				error!("{}: iptc_append_entry() error : {}", caller, last_iptc_error());
 				break 'free -1;
 			}
 			if iptc_commit(h) == 0 {
-				println!("{}: iptc_commit() error : {}", caller, last_iptc_error());
+				error!("{}: iptc_commit() error : {}", caller, last_iptc_error());
 				break 'free -1;
 			}
 			0

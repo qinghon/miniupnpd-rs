@@ -62,12 +62,13 @@ fn BuildSendAndCloseSoapResp(h: &mut upnphttp, body: &[u8]) {
 	SendRespAndClose_upnphttp(h);
 }
 fn GetConnectionTypeInfo(h: &mut upnphttp, action: &str, ns: &str) {
-	let body = format!(
+	let mut body = arrayvec::ArrayString::<508>::new();
+	let _ = body.write_fmt(format_args!(
 		"<u:{action}Response xmlns:u=\"{ns}\">\
         <NewConnectionType>IP_Routed</NewConnectionType>\
         <NewPossibleConnectionTypes>IP_Routed</NewPossibleConnectionTypes>\
         </u:{action}Response>"
-	);
+	));
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
 
@@ -88,16 +89,13 @@ fn GetTotalBytesSent(h: &mut upnphttp, action: &str, ns: &str) {
 	let rt = h.rt_options.as_ref().unwrap();
 	let r = rt.os.getifstats(ext_if_name, &mut data);
 	let total_bytes_sent = fmt_upnp_ui4_strict(r, data.obytes);
-
-	BuildSendAndCloseSoapResp(
-		h,
-		format!(
-			"<u:{action}Response xmlns:u=\"{ns}\">\
+	let mut body = arrayvec::ArrayString::<252>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response xmlns:u=\"{ns}\">\
             <NewTotalBytesSent>{total_bytes_sent}</NewTotalBytesSent>\
             </u:{action}Response>",
-		)
-		.as_bytes(),
-	)
+	));
+	BuildSendAndCloseSoapResp(h, body.as_bytes())
 }
 
 fn GetTotalBytesReceived(h: &mut upnphttp, action: &str, ns: &str) {
@@ -107,17 +105,13 @@ fn GetTotalBytesReceived(h: &mut upnphttp, action: &str, ns: &str) {
 	let rt = h.rt_options.as_ref().unwrap();
 	let r = rt.os.getifstats(ext_if_name, &mut data);
 	let total_bytes_received = fmt_upnp_ui4_strict(r, data.ibytes);
-
-	BuildSendAndCloseSoapResp(
-		h,
-		format!(
-			"<u:{action}Response \
-            xmlns:u=\"{ns}\">\
-            <NewTotalBytesReceived>{total_bytes_received}</NewTotalBytesReceived>\
-            </u:{action}Response>"
-		)
-		.as_bytes(),
-	)
+	let mut body = arrayvec::ArrayString::<252>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response xmlns:u=\"{ns}\">\
+        <NewTotalBytesReceived>{total_bytes_received}</NewTotalBytesReceived>\
+        </u:{action}Response>"
+	));
+	BuildSendAndCloseSoapResp(h, body.as_bytes())
 }
 
 fn GetTotalPacketsSent(h: &mut upnphttp, action: &str, ns: &str) {
@@ -127,16 +121,13 @@ fn GetTotalPacketsSent(h: &mut upnphttp, action: &str, ns: &str) {
 	let rt = h.rt_options.as_ref().unwrap();
 	let r = rt.os.getifstats(ext_if_name, &mut data);
 	let total_packets_sent = fmt_upnp_ui4_strict(r, data.opackets);
-
-	BuildSendAndCloseSoapResp(
-		h,
-		format!(
-			"<u:{action}Response xmlns:u=\"{ns}\">\
-            <NewTotalPacketsSent>{total_packets_sent}</NewTotalPacketsSent>\
-            </u:{action}Response>"
-		)
-		.as_bytes(),
-	)
+	let mut body = arrayvec::ArrayString::<252>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response xmlns:u=\"{ns}\">\
+        <NewTotalPacketsSent>{total_packets_sent}</NewTotalPacketsSent>\
+        </u:{action}Response>"
+	));
+	BuildSendAndCloseSoapResp(h, body.as_bytes())
 }
 
 fn GetTotalPacketsReceived(h: &mut upnphttp, action: &str, ns: &str) {
@@ -146,16 +137,13 @@ fn GetTotalPacketsReceived(h: &mut upnphttp, action: &str, ns: &str) {
 	let rt = h.rt_options.as_ref().unwrap();
 	let r = rt.os.getifstats(ext_if_name, &mut data);
 	let total_packets_received = fmt_upnp_ui4_strict(r, data.ibytes);
-
-	BuildSendAndCloseSoapResp(
-		h,
-		format!(
-			"<u:{action}Response  xmlns:u=\"{ns}\">\
+	let mut body = arrayvec::ArrayString::<252>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response  xmlns:u=\"{ns}\">\
             <NewTotalPacketsReceived>{total_packets_received}</NewTotalPacketsReceived>\
             </u:{action}Response>"
-		)
-		.as_bytes(),
-	)
+	));
+	BuildSendAndCloseSoapResp(h, body.as_bytes())
 }
 
 fn GetCommonLinkProperties(h: &mut upnphttp, action: &str, ns: &str) {
@@ -183,19 +171,16 @@ fn GetCommonLinkProperties(h: &mut upnphttp, action: &str, ns: &str) {
 	if getifaddr(ext_if_name, &mut _ip, None) < 0 {
 		status = "Down";
 	}
-
-	BuildSendAndCloseSoapResp(
-		h,
-		format!(
-			"<u:{action}Response xmlns:u=\"{ns}\">\
+	let mut body = arrayvec::ArrayString::<508>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response xmlns:u=\"{ns}\">\
             <NewWANAccessType>{wan_access_type}</NewWANAccessType>\
             <NewLayer1UpstreamMaxBitRate>{upstream_bitrate}</NewLayer1UpstreamMaxBitRate>\
             <NewLayer1DownstreamMaxBitRate>{downstream_bitrate}</NewLayer1DownstreamMaxBitRate>\
             <NewPhysicalLinkStatus>{status}</NewPhysicalLinkStatus>\
             </u:{action}Response>"
-		)
-		.as_bytes(),
-	)
+	));
+	BuildSendAndCloseSoapResp(h, body.as_bytes())
 }
 
 fn GetStatusInfo(h: &mut upnphttp, action: &str, ns: &str) {
@@ -203,18 +188,15 @@ fn GetStatusInfo(h: &mut upnphttp, action: &str, ns: &str) {
 	let ext_if_name = &op.ext_ifname;
 	let status = get_wan_connection_status_str(ext_if_name);
 	let uptime = upnp_get_uptime().as_secs();
-
-	BuildSendAndCloseSoapResp(
-		h,
-		format!(
-			"<u:{action}Response xmlns:u=\"{ns}\">\
+	let mut body = arrayvec::ArrayString::<508>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response xmlns:u=\"{ns}\">\
             <NewConnectionStatus>{status}</NewConnectionStatus>\
             <NewLastConnectionError>ERROR_NONE</NewLastConnectionError>\
             <NewUptime>{uptime}</NewUptime>\
             </u:{action}Response>",
-		)
-		.as_bytes(),
-	)
+	));
+	BuildSendAndCloseSoapResp(h, body.as_bytes())
 }
 
 fn GetNATRSIPStatus(h: &mut upnphttp, action: &str, ns: &str) {
@@ -226,16 +208,14 @@ fn GetNATRSIPStatus(h: &mut upnphttp, action: &str, ns: &str) {
 	// applications that otherwise break if NAT is introduced
 	// (e.g. IPsec-based VPNs).
 	// A gateway that does not support RSIP should set this variable to 0.
-	BuildSendAndCloseSoapResp(
-		h,
-		format!(
-			"<u:{action}Response xmlns:u=\"{ns}\">\
-            <NewRSIPAvailable>0</NewRSIPAvailable>\
-            <NewNATEnabled>1</NewNATEnabled>\
-            </u:{action}Response>",
-		)
-		.as_bytes(),
-	)
+	let mut body = arrayvec::ArrayString::<252>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response xmlns:u=\"{ns}\">\
+        <NewRSIPAvailable>0</NewRSIPAvailable>\
+        <NewNATEnabled>1</NewNATEnabled>\
+        </u:{action}Response>",
+	));
+	BuildSendAndCloseSoapResp(h, body.as_bytes())
 }
 
 fn GetExternalIPAddress(h: &mut upnphttp, action: &str, ns: &str) {
@@ -286,19 +266,20 @@ fn GetExternalIPAddress(h: &mut upnphttp, action: &str, ns: &str) {
 			}
 		}
 	}
-	let body = if ext_ip_addr == Ipv4Addr::UNSPECIFIED {
-		format!(
+	let mut body = arrayvec::ArrayString::<252>::new();
+	if ext_ip_addr.is_unspecified() {
+		let _ = body.write_fmt(format_args!(
 			"<u:{action}Response xmlns:u=\"{ns}\">\
             <NewExternalIPAddress>{ext_ip_addr}</NewExternalIPAddress>\
             </u:{action}Response>"
-		)
+		));
 	} else {
-		format!(
+		let _ = body.write_fmt(format_args!(
 			"<u:{action}Response xmlns:u=\"{ns}\">\
             <NewExternalIPAddress>{}</NewExternalIPAddress>\
             </u:{action}Response>",
 			""
-		)
+		));
 	};
 
 	BuildSendAndCloseSoapResp(h, body.as_bytes())
@@ -444,7 +425,9 @@ fn AddPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	// 732 - WildCardNotPermittedInIntPort (added in IGD v2)
 	match r {
 		0 => {
-			BuildSendAndCloseSoapResp(h, format!("<u:{action}Response xmlns:u=\"{ns}\"/>").as_bytes());
+			let mut body = arrayvec::ArrayString::<124>::new();
+			let _ = body.write_fmt(format_args!("<u:{action}Response xmlns:u=\"{ns}\"/>"));
+			BuildSendAndCloseSoapResp(h, body.as_bytes());
 		}
 		#[cfg(feature = "igd2")]
 		-4 => {
@@ -588,10 +571,10 @@ fn AddAnyPortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	match r {
 		1 => SoapError(h, 728, "NoPortMapsAvailable"),
 		0 => {
-			let body = format!(
-				"<u:{action}Response xmlns:u=\"{ns}\"><NewReservedPort>{}</NewReservedPort></u:{action}Response>",
-				eport,
-			);
+			let mut body = arrayvec::ArrayString::<252>::new();
+			let _ = body.write_fmt(format_args!(
+				"<u:{action}Response xmlns:u=\"{ns}\"><NewReservedPort>{eport}</NewReservedPort></u:{action}Response>"
+			));
 			BuildSendAndCloseSoapResp(h, body.as_bytes());
 		}
 		-2 => SoapError(h, 718, "ConflictInMappingEntry"),
@@ -641,17 +624,18 @@ fn GetSpecificPortMappingEntry(h: &mut upnphttp, action: &str, ns: &str) {
 		let mut desc = desc_rc.as_str();
 
 		#[cfg(feature = "pcp")]
-		let mut desc_s: Box<str>;
+		let mut desc_s: arrayvec::ArrayString<124>;
 
 		#[cfg(feature = "pcp")]
 		if !desc.is_empty() {
-			desc_s = Box::from(desc);
+			desc_s = arrayvec::ArrayString::from(desc).unwrap_or_default();
 
 			hide_pcp_nonce(unsafe { desc_s.as_bytes_mut() });
 			desc = desc_s.as_str();
 		}
+		let mut body = arrayvec::ArrayString::<1020>::new();
 
-		let body = format!(
+		let _ = body.write_fmt(format_args!(
 			"<u:{action}Response xmlns:u=\"{ns}\">\
 			<NewInternalPort>{}</NewInternalPort>\
 			<NewInternalClient>{}</NewInternalClient>\
@@ -660,7 +644,7 @@ fn GetSpecificPortMappingEntry(h: &mut upnphttp, action: &str, ns: &str) {
 			<NewLeaseDuration>{}</NewLeaseDuration>\
 			</u:{action}Response>",
 			r.iport, r.iaddr, desc, r.timestamp
-		);
+		));
 		BuildSendAndCloseSoapResp(h, body.as_bytes());
 	} else {
 		SoapError(h, 714, "NoSuchEntryInArray");
@@ -712,7 +696,10 @@ fn DeletePortMapping(h: &mut upnphttp, action: &str, ns: &str) {
 	if r < 0 {
 		SoapError(h, 714, "NoSuchEntryInArray");
 	} else {
-		let body = format!("<u:{action}Response xmlns:u=\"{ns}\"> </u:{action}Response>",);
+		let mut body = arrayvec::ArrayString::<124>::new();
+		let _ = body.write_fmt(format_args!(
+			"<u:{action}Response xmlns:u=\"{ns}\"> </u:{action}Response>"
+		));
 		BuildSendAndCloseSoapResp(h, body.as_bytes());
 	}
 }
@@ -765,8 +752,10 @@ fn DeletePortMappingRange(h: &mut upnphttp, action: &str, ns: &str) {
 		SoapError(h, 730, "PortMappingNotFound");
 		return;
 	}
-
-	let body = format!("<u:{action}Response xmlns:u=\"{ns}\"></u:{action}Response>",);
+	let mut body = arrayvec::ArrayString::<124>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response xmlns:u=\"{ns}\"></u:{action}Response>"
+	));
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
 
@@ -799,11 +788,11 @@ fn GetGenericPortMappingEntry(h: &mut upnphttp, action: &str, ns: &str) {
 		let mut desc = desc_rc.as_str();
 
 		#[cfg(feature = "pcp")]
-		let mut desc_s: Box<str>;
+		let mut desc_s: arrayvec::ArrayString<124>;
 
 		#[cfg(feature = "pcp")]
 		if !desc.is_empty() {
-			desc_s = Box::from(desc);
+			desc_s = arrayvec::ArrayString::from(desc).unwrap_or_default();
 
 			hide_pcp_nonce(unsafe { desc_s.as_bytes_mut() });
 			desc = desc_s.as_str();
@@ -884,11 +873,11 @@ fn GetListOfPortMappings(h: &mut upnphttp, action: &str, ns: &str) {
 				let mut desc = desc_rc.as_str();
 
 				#[cfg(feature = "pcp")]
-				let mut desc_s: Box<str>;
+				let mut desc_s: arrayvec::ArrayString<124>;
 
 				#[cfg(feature = "pcp")]
 				if !desc.is_empty() {
-					desc_s = Box::from(desc);
+					desc_s = arrayvec::ArrayString::from(desc).unwrap_or_default();
 
 					hide_pcp_nonce(unsafe { desc_s.as_bytes_mut() });
 					desc = desc_s.as_str();
@@ -936,17 +925,19 @@ fn SetDefaultConnectionService(h: &mut upnphttp, action: &str, ns: &str) {
 				SoapError(h, 721, "InvalidServiceID");
 			} else {
 				info!("{}({}) : Ignored", action, p);
-				BuildSendAndCloseSoapResp(
-					h,
-					format!("<u:{action}Response xmlns:u=\"{ns}\"></u:{action}Response>").as_bytes(),
-				);
+				let mut body = arrayvec::ArrayString::<252>::new();
+				let _ = body.write_fmt(format_args!(
+					"<u:{action}Response xmlns:u=\"{ns}\"></u:{action}Response>"
+				));
+				BuildSendAndCloseSoapResp(h, body.as_bytes());
 			}
 		} else {
 			info!("{}({}) : Ignored", action, p);
-			BuildSendAndCloseSoapResp(
-				h,
-				format!("<u:{action}Response xmlns:u=\"{ns}\"></u:{action}Response>").as_bytes(),
-			);
+			let mut body = arrayvec::ArrayString::<252>::new();
+			let _ = body.write_fmt(format_args!(
+				"<u:{action}Response xmlns:u=\"{ns}\"></u:{action}Response>"
+			));
+			BuildSendAndCloseSoapResp(h, body.as_bytes());
 		}
 	} else {
 		SoapError(h, 402, "Invalid Args");
@@ -956,13 +947,14 @@ fn SetDefaultConnectionService(h: &mut upnphttp, action: &str, ns: &str) {
 fn GetDefaultConnectionService(h: &mut upnphttp, action: &str, ns: &str) {
 	// Example: uuid:44f5824f-c57d-418c-a131-f22b34e14111:WANConnectionDevice:1,
 	// urn:upnp-org:serviceId:WANPPPConn1
-	let body = format!(
+	let mut body = arrayvec::ArrayString::<508>::new();
+	let _ = body.write_fmt(format_args!(
 		"<u:{action}Response xmlns:u=\"{ns}\">\
 		<NewDefaultConnectionService>{}:WANConnectionDevice:{},{SERVICE_ID_WANIPC}</NewDefaultConnectionService>\
 		</u:{action}Response>",
 		uuidvalue_wcd.get().unwrap(),
 		if cfg!(feature = "igd2") { 2 } else { 1 }
-	);
+	));
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
 
@@ -1004,29 +996,24 @@ fn QueryStateVariable(h: &mut upnphttp, action: &str, ns: &str) {
 		"ConnectionStatus" => {
 			let op = global_option.get().unwrap();
 			let status = get_wan_connection_status_str(&op.ext_ifname);
-			BuildSendAndCloseSoapResp(
-				h,
-				format!(
-					"<u:{action}Response xmlns:u=\"{ns}\">\
+			let mut body = arrayvec::ArrayString::<252>::new();
+			let _ = body.write_fmt(format_args!(
+				"<u:{action}Response xmlns:u=\"{ns}\">\
                         <return>{status}</return>\
                         </u:{action}Response>",
-				)
-				.as_bytes(),
-			)
+			));
+			BuildSendAndCloseSoapResp(h, body.as_bytes())
 		}
 		"PortMappingNumberOfEntries" => {
 			let rt = h.rt_options.as_ref().unwrap();
 			let num = upnp_get_portmapping_number_of_entries(&rt.nat_impl);
-
-			BuildSendAndCloseSoapResp(
-				h,
-				format!(
-					"<u:{action}Response xmlns:u=\"{ns}\">\
-                        <return>{num}</return>\
-                        </u:{action}Response>"
-				)
-				.as_bytes(),
-			)
+			let mut body = arrayvec::ArrayString::<252>::new();
+			let _ = body.write_fmt(format_args!(
+				"<u:{action}Response xmlns:u=\"{ns}\">\
+                <return>{num}</return>\
+                </u:{action}Response>"
+			));
+			BuildSendAndCloseSoapResp(h, body.as_bytes())
 		}
 		_ => {
 			notice!("{}: Unknown: {}", action, var_name);
@@ -1047,17 +1034,14 @@ fn GetFirewallStatus(h: &mut upnphttp, action: &str, ns: &str) {
 	} else {
 		1
 	};
-
-	BuildSendAndCloseSoapResp(
-		h,
-		format!(
-			"<u:{action}Response xmlns:u=\"{ns}\">\
+	let mut body = arrayvec::ArrayString::<508>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response xmlns:u=\"{ns}\">\
             <FirewallEnabled>{firewall_enabled}</FirewallEnabled>\
             <InboundPinholeAllowed>{inbound_pinhole_allowed}</InboundPinholeAllowed>\
             </u:{action}Response>"
-		)
-		.as_bytes(),
-	)
+	));
+	BuildSendAndCloseSoapResp(h, body.as_bytes())
 }
 #[cfg(feature = "ipv6")]
 fn CheckStatus(h: &mut upnphttp) -> bool {
@@ -1235,8 +1219,10 @@ fn AddPinhole(h: &mut upnphttp, action: &str, ns: &str) {
 	};
 	match upnp_add_inboundpinhole(op, &mut rt.nat_impl, &pinhole, &mut new_uid) {
 		1 => {
-			let body =
-				format!("<u:{action}Response xmlns:u=\"{ns}\"><UniqueID>{new_uid}</UniqueID></u:{action}Response>");
+			let mut body = arrayvec::ArrayString::<252>::new();
+			let _ = body.write_fmt(format_args!(
+				"<u:{action}Response xmlns:u=\"{ns}\"><UniqueID>{new_uid}</UniqueID></u:{action}Response>"
+			));
 			BuildSendAndCloseSoapResp(h, body.as_bytes());
 		}
 		-1 => {
@@ -1295,7 +1281,10 @@ fn UpdatePinhole(h: &mut upnphttp, action: &str, ns: &str) {
 		-1 => SoapError(h, 704, "NoSuchEntry"),
 		_ if n < 0 => SoapError(h, 501, "Action Failed"),
 		_ => {
-			let body = format!("<u:{action}Response xmlns:u=\"{ns}\"> </u:{action}Response>",);
+			let mut body = arrayvec::ArrayString::<124>::new();
+			let _ = body.write_fmt(format_args!(
+				"<u:{action}Response xmlns:u=\"{ns}\"> </u:{action}Response>",
+			));
 			BuildSendAndCloseSoapResp(h, body.as_bytes());
 		}
 	}
@@ -1341,11 +1330,12 @@ fn GetOutboundPinholeTimeout(h: &mut upnphttp, action: &str, ns: &str) {
 	match r {
 		1 => {
 			let opt = 0; // Placeholder for the actual timeout value
-			let body = format!(
+			let mut body = arrayvec::ArrayString::<252>::new();
+			let _ = body.write_fmt(format_args!(
 				"<u:{action}Response xmlns:u=\"{ns}\">\
                 <OutboundPinholeTimeout>{opt}</OutboundPinholeTimeout>\
                 </u:{action}Response>"
-			);
+			));
 			BuildSendAndCloseSoapResp(h, body.as_bytes());
 		}
 		-5 => SoapError(h, 705, "ProtocolNotSupported"),
@@ -1388,8 +1378,10 @@ fn DeletePinhole(h: &mut upnphttp, action: &str, ns: &str) {
 	}
 
 	info!("{}: (inbound) pinhole with ID {} successfully removed", action, uid);
-
-	let body = format!("<u:{action}Response xmlns:u=\"{ns}\"></u:{action}Response>",);
+	let mut body = arrayvec::ArrayString::<124>::new();
+	let _ = body.write_fmt(format_args!(
+		"<u:{action}Response xmlns:u=\"{ns}\"></u:{action}Response>"
+	));
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
 #[cfg(feature = "ipv6")]
@@ -1419,7 +1411,11 @@ fn CheckPinholeWorking(h: &mut upnphttp, action: &str, ns: &str) {
 			SoapError(h, 709, "NoTrafficReceived");
 			return;
 		}
-		let body = format!("<u:{action}Response xmlns:u=\"{ns}\"><IsWorking>1</IsWorking></u:{action}Response>");
+		let mut body = arrayvec::ArrayString::<252>::new();
+
+		let _ = body.write_fmt(format_args!(
+			"<u:{action}Response xmlns:u=\"{ns}\"><IsWorking>1</IsWorking></u:{action}Response>"
+		));
 		BuildSendAndCloseSoapResp(h, body.as_bytes());
 	} else {
 		SoapError(h, 704, "NoSuchEntry");
@@ -1448,12 +1444,13 @@ fn GetPinholePackets(h: &mut upnphttp, action: &str, ns: &str) {
 			SoapError(h, 606, "Action not authorized");
 			return;
 		}
-		let body = format!(
+		let mut body = arrayvec::ArrayString::<252>::new();
+		let _ = body.write_fmt(format_args!(
 			"<u:{action}Response xmlns:u=\"{ns}\">\
             <PinholePackets>{}</PinholePackets>\
             </u:{action}Response>",
 			n.packets
-		);
+		));
 		BuildSendAndCloseSoapResp(h, body.as_bytes());
 	} else {
 		SoapError(h, 704, "NoSuchEntry");
@@ -1478,12 +1475,12 @@ fn SendSetupMessage(h: &mut upnphttp, action: &str, ns: &str) {
 	}
 
 	const out_message: &str = ""; // Placeholder for WPS output message
-
-	let body = format!(
+	let mut body = arrayvec::ArrayString::<252>::new();
+	let _ = body.write_fmt(format_args!(
 		"<u:{action}Response  xmlns:u=\"{ns}\">\
         <OutMessage>{out_message}</OutMessage>\
         </u:{action}Response>"
-	);
+	));
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
 #[cfg(feature = "dp_service")]
@@ -1514,7 +1511,7 @@ fn GetAssignedRoles(h: &mut upnphttp, action: &str, ns: &str) {
 		use openssl_sys::SSL_get_peer_certificate as peer_fn;
 		#[cfg(openssl3)]
 		use openssl_sys::SSL_get0_peer_certificate as peer_fn;
-		
+
 		use openssl_sys::X509_free;
 		if !h.ssl.is_none() {
 			let peer_cert = unsafe { peer_fn(h.ssl.as_ptr()) };
@@ -1524,12 +1521,12 @@ fn GetAssignedRoles(h: &mut upnphttp, action: &str, ns: &str) {
 			}
 		}
 	}
-
-	let body = format!(
+	let mut body = arrayvec::ArrayString::<252>::new();
+	let _ = body.write_fmt(format_args!(
 		"<u:{action}Response xmlns:u=\"{ns}\">\
         <RoleList>{role_list}</RoleList>\
         </u:{action}Response>"
-	);
+	));
 	BuildSendAndCloseSoapResp(h, body.as_bytes());
 }
 
@@ -1587,8 +1584,9 @@ const soapMethods: &[soapMethod<fn(&mut upnphttp, &str, &str)>] = &[
 pub fn ExecuteSoapAction(h: &mut upnphttp) {
 	/* SoapAction example :
 	 * urn:schemas-upnp-org:service:WANIPConnection:1#GetStatusInfo */
-	// todo: move to stack
-	let action = h.get_req_str_from(h.req_soapActionOff).to_string();
+
+	let mut action = arrayvec::ArrayString::<124>::new();
+	let _ = action.try_push_str(h.get_req_str_from(h.req_soapActionOff));
 
 	let splited = action.split_once('#');
 	if splited.is_none() {
@@ -1613,7 +1611,8 @@ pub fn ExecuteSoapAction(h: &mut upnphttp) {
 }
 
 pub fn SoapError(h: &mut upnphttp, errCode: i32, errDesc: &str) {
-	let body = format!(
+	let mut body = arrayvec::ArrayString::<1020>::new();
+	let _ = body.write_fmt(format_args!(
 		"<s:Envelope \
         xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" \
         s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\
@@ -1630,7 +1629,7 @@ pub fn SoapError(h: &mut upnphttp, errCode: i32, errDesc: &str) {
         </s:Fault>\
         </s:Body>\
         </s:Envelope>"
-	);
+	));
 	info!("Returning UPnPError {}: {}", errCode, errDesc);
 
 	BuildResp2_upnphttp(h, 500, "Internal Server Error", Some(body.as_bytes()));

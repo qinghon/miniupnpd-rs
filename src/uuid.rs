@@ -133,7 +133,7 @@ mod tests {
 		let uuid = UUID::from_str(uuid_str).unwrap();
 		assert_eq!(uuid.0[0], 0x6b);
 		assert_eq!(uuid.0[1], 0x4c);
-		assert_eq!(format!("{}", uuid), uuid_str);
+		assert_eq!(format!("{uuid}"), uuid_str);
 	}
 	#[test]
 	fn test_uuid_generate() {

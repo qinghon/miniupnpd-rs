@@ -25,6 +25,7 @@ socket2 = { version = "0.5.8", features = ["all"] }
 regex-lite = {version = "0.1", optional = true}
 # mainline openssl-sys not export some constants, ssl_ctx init depend 
 openssl-sys = {git = "https://github.com/qinghon/rust-openssl.git", optional = true , features = ["bindgen"]}
+arrayvec = "0.7.6"
 
 [features]
 default = ["igd2", "events", "ipv6", "strict", "rule_use_ifname", "pcp"]

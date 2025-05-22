@@ -225,21 +225,21 @@ fn upnp_event_notify_connect(obj: &mut upnp_event_notify) {
 	let sock = socket.unwrap();
 
 	obj.addr = sock;
-	obj.path = if let Some(p) = path { Some(p.into()) } else { None };
+	obj.path = path.map(|p| p.into());
 
 	debug!("upnp_event_notify_connect: '{}' '{}'", sock, path.unwrap_or_default());
 
 	obj.state = EConnecting;
-	if let Err(e) = obj.s.connect(&sock.into()) {
-		if e.kind() != io::ErrorKind::WouldBlock {
-			error!(
-				"upnp_event_notify_connect: connect({}, {}): {}",
-				obj.s.as_raw_fd(),
-				sock,
-				e
-			);
-			obj.state = EError;
-		}
+	if let Err(e) = obj.s.connect(&sock.into())
+		&& e.kind() != io::ErrorKind::WouldBlock
+	{
+		error!(
+			"upnp_event_notify_connect: connect({}, {}): {}",
+			obj.s.as_raw_fd(),
+			sock,
+			e
+		);
+		obj.state = EError;
 	}
 }
 
@@ -304,7 +304,6 @@ fn upnp_event_send(obj: &mut upnp_event_notify) {
 			if e.kind() != io::ErrorKind::WouldBlock && e.kind() != io::ErrorKind::Interrupted {
 				error!("upnp_event_send: send({}): {}", obj.addr, e);
 				obj.state = EError;
-				return;
 			}
 			// EAGAIN/EWOULDBLOCK/EINTR: 没有数据发送
 		}

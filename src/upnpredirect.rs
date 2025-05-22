@@ -7,6 +7,7 @@ use crate::upnppermissions::check_upnp_rule_against_permissions;
 use crate::upnputils::{proto_atoi, proto_itoa, upnp_time};
 use crate::warp::StackBufferReader;
 use crate::{Backend, MapEntry, OS, nat_impl};
+use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::fs::{File, remove_file};
 use std::io::{self, Write};
@@ -65,13 +66,13 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 	if lease_file.is_empty() {
 		return 0;
 	}
-	let mut fd = match fs::File::open(lease_file.as_str()) {
+	let mut fd = match File::open(lease_file.as_str()) {
 		Ok(fd) => fd,
 		Err(_) => return -1,
 	};
 	let tmpfilename = format!("{}XXXXXX", lease_file);
 
-	let mut tmp = match fs::File::create(tmpfilename.as_str()) {
+	let mut tmp = match File::create(tmpfilename.as_str()) {
 		Ok(f) => f,
 		Err(_) => {
 			error!("could not open temporary lease file");
@@ -81,10 +82,11 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 	let _ = tmp.set_permissions(fs::Permissions::from_mode(0o644));
 	let mut buf = [0; 512];
 	let mut fdr = StackBufferReader::new(&mut buf);
-	let str = format!("{}:{}", proto_itoa(proto), eport);
+	let mut prefix = arrayvec::ArrayString::<60>::new();
+	let _ = FmtWrite::write_fmt(&mut prefix, format_args!("{}:{}", proto_itoa(proto), eport));
 	while let Some(Ok(l)) = fdr.read_line(&mut fd) {
 		if let Ok(line) = str::from_utf8(&l) {
-			if !line.starts_with(str.as_str()) {
+			if !line.starts_with(prefix.as_str()) {
 				let _ = tmp.write(line.as_bytes());
 				let _ = tmp.write(b"\n");
 			}
@@ -93,7 +95,7 @@ fn lease_file_remove(eport: u16, proto: u8) -> i32 {
 
 	if let Err(_) = fs::rename(&tmpfilename, lease_file.as_str()) {
 		error!("could not rename temporary lease file to {}", lease_file);
-		let _ = fs::remove_file(tmpfilename.as_str());
+		let _ = remove_file(tmpfilename.as_str());
 	}
 	0
 }
@@ -250,19 +252,19 @@ pub fn upnp_redirect(
 					timestamp
 				);
 			}
-			return ret;
+			ret
 		} else {
 			info!(
 				"port {} {} (rhost '{}') already redirected to {}:{}",
 				eport, proto, raddr, iaddr, iport
 			);
-			return -2;
+			-2
 		}
 	} else if cfg!(feature = "portinuse")
 		&& rt.os.port_in_use(&rt.nat_impl, &op.ext_ifname, eport, proto, &iaddr, iport) > 0
 	{
 		info!("port {} protocol {} already in use", eport, proto);
-		return -4;
+		-4
 	} else {
 		let timestamp = if leaseduration > 0 {
 			upnp_time().as_secs() + leaseduration as u64
@@ -308,7 +310,7 @@ pub fn upnp_redirect_internal(op: &Options, rt: &mut RtOptions, entry: &MapEntry
 		entry.timestamp as _,
 	);
 	if rt.nat_impl.add_filter_rule(&op.ext_ifname, &entry) < 0 {
-		return -(1);
+		return -1;
 	}
 	if entry.timestamp > 0 {
 		let add = Duration::from_secs(entry.timestamp) - upnp_time();
@@ -328,7 +330,7 @@ pub fn upnp_redirect_internal(op: &Options, rt: &mut RtOptions, entry: &MapEntry
 		entry.timestamp
 	);
 	upnp_event_var_change_notify(&mut rt.subscriber_list, EWanIPC);
-	return 0;
+	0
 }
 pub fn upnp_get_redirection_infos(nat: &nat_impl, eport: u16, protocol: u8) -> Option<MapEntry> {
 	nat.get_redirect_rule(|x| x.iport == eport && x.proto == protocol)

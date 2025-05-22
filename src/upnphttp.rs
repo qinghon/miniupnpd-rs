@@ -76,20 +76,18 @@ pub enum httpCommands {
 use self::httpCommands::*;
 
 pub trait SubsliceOffset {
-	/**
-	Returns the byte offset of an inner slice relative to an enclosing outer slice.
-
-	Examples
-
-	```ignore
-	let string = "a\nb\nc";
-	let lines: Vec<&str> = string.lines().collect();
-	assert!(string.subslice_offset_stable(lines[0]) == Some(0)); // &"a"
-	assert!(string.subslice_offset_stable(lines[1]) == Some(2)); // &"b"
-	assert!(string.subslice_offset_stable(lines[2]) == Some(4)); // &"c"
-	assert!(string.subslice_offset_stable("other!") == None);
-	```
-	*/
+	///
+	/// Returns the byte offset of an inner slice relative to an enclosing outer slice.
+	/// Examples
+	///
+	/// ```ignore
+	/// let string = "a\nb\nc";
+	/// let lines: Vec<&str> = string.lines().collect();
+	/// assert!(string.subslice_offset_stable(lines[0]) == Some(0)); // &"a"
+	/// assert!(string.subslice_offset_stable(lines[1]) == Some(2)); // &"b"
+	/// assert!(string.subslice_offset_stable(lines[2]) == Some(4)); // &"c"
+	/// assert!(string.subslice_offset_stable("other!") == None);
+	/// ```
 	fn subslice_offset_stable(&self, inner: &Self) -> OffLen;
 }
 
@@ -509,8 +507,9 @@ fn ProcessHTTPPOST_upnphttp(h: &mut upnphttp) {
 			SendRespAndClose_upnphttp(h);
 		}
 	} else if GETFLAG!(h.respflags, FLAG_CONTINUE) {
-		h.res_buf
-			.extend_from_slice(format!("{}  100 Continue\r\n\r\n", h.get_req_str_from(h.HttpVer)).as_bytes());
+		let version = arrayvec::ArrayString::<12>::from_str(h.get_req_str_from(h.HttpVer)).unwrap();
+		h.res_buf.extend_from_slice(version.as_bytes());
+		h.res_buf.extend_from_slice(b" 100 Continue\r\n\r\n");
 		h.res_sent = 0;
 		h.state = ESendingContinue;
 		if SendResp_upnphttp(h) != 0 {
@@ -934,7 +933,7 @@ mod tests {
 	fn test_checkCallbackURL() {
 		let clientaddr = Ipv4Addr::new(192, 168, 1, 2).into();
 		let mut h = New_upnphttp(
-			socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).unwrap(),
+			Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).unwrap(),
 			clientaddr,
 		);
 

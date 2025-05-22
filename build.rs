@@ -43,7 +43,7 @@ fn build_if_addr() {
 		.use_core()
 		.derive_default(true)
 		.ctypes_prefix("libc")
-		.rust_target(bindgen::RustTarget::nightly())
+		.rust_target(RustTarget::nightly())
 		.rust_edition(bindgen::RustEdition::Edition2024)
 		.generate()
 		.expect("Unable to generate bindings");
@@ -67,7 +67,7 @@ fn probe_iptables() {
 		.blocklist_type("in_addr|in6_addr")
 		.use_core()
 		.ctypes_prefix("libc")
-		.rust_target(bindgen::RustTarget::nightly())
+		.rust_target(RustTarget::nightly())
 		.rust_edition(bindgen::RustEdition::Edition2024)
 		.clang_args(libiptc.include_paths.iter().map(|x| format!("-I{}", x.to_str().unwrap())))
 		.raw_line("use libc::{self, in_addr, in6_addr};")
@@ -82,9 +82,9 @@ fn probe_nftables() {
 
 	// code from libnftnl-sys
 	// const NFTNL_PKG_CONFIG: &'static str = "libnftnl";
-	const NFTNL_REGEX: &'static str = "^nftnl_.+$";
-	const NFTNL_FLAGS_REGEX: &'static str = "^nftnl_.+_flags$";
-	const NFTNL_NOT_FLAGS_REGEX: &'static str = "^nftnl_.+[^_][^f][^l][^a][^g][^s]$";
+	const NFTNL_REGEX: &str = "^nftnl_.+$";
+	const NFTNL_FLAGS_REGEX: &str = "^nftnl_.+_flags$";
+	const NFTNL_NOT_FLAGS_REGEX: &str = "^nftnl_.+[^_][^f][^l][^a][^g][^s]$";
 
 	let bindings = bindgen::Builder::default()
 		.header_contents(
@@ -326,7 +326,7 @@ fn probe_lib_generic(
 		.map(|x| x.to_string_lossy().into_owned())
 		.collect::<Vec<String>>();
 
-	let header_content = headers.iter().map(|x| format!("#include <{}>", x)).collect::<Vec<String>>().join("\n");
+	let header_content = headers.iter().map(|x| format!("#include <{x}>")).collect::<Vec<String>>().join("\n");
 
 	let mut bindings = bindgen::Builder::default()
 		.header_contents("wrapper.h", &header_content)
@@ -357,7 +357,7 @@ fn load_env() {
 
 	let output = Command::new("sh")
 		.arg("-c")
-		.arg(format!(". {} {} && env", script_path, ext_args))
+		.arg(format!(". {script_path} {ext_args} && env"))
 		.output()
 		.expect("Failed to execute script");
 	if output.status.success() {

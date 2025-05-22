@@ -17,7 +17,7 @@ pub const NATPMP_NOTIF_PORT: u16 = 5350;
 pub const NATPMP_NOTIF_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 1);
 
 pub fn OpenAndConfNATPMPSocket(addr: Ipv4Addr) -> io::Result<Socket> {
-	let sock = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)?;
+	let sock = Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)?;
 
 	sock.set_reuse_address(true)?;
 	sock.set_nonblocking(true)?;
@@ -78,14 +78,14 @@ pub fn ReceiveNATPMPOrPCPPacket(
 	let (raddr, laddr, ifindex, l) = recv_from_if(s, msg_buff)?;
 	senderaddr.set_ip(raddr.ip());
 	senderaddr.set_port(raddr.port());
-	if let Some(recvaddr) = receiveraddr {
-		if let Some(laddr) = laddr {
-			recvaddr.set_scope_id(ifindex);
-			match laddr {
-				IpAddr::V4(_) => {}
-				IpAddr::V6(v6addr) => {
-					recvaddr.set_ip(v6addr);
-				}
+	if let Some(recvaddr) = receiveraddr
+		&& let Some(laddr) = laddr
+	{
+		recvaddr.set_scope_id(ifindex);
+		match laddr {
+			IpAddr::V4(_) => {}
+			IpAddr::V6(v6addr) => {
+				recvaddr.set_ip(v6addr);
 			}
 		}
 	}
@@ -258,7 +258,7 @@ pub fn ProcessIncomingNATPMPPacket(
 				}
 
 				// do the redirection
-				let desc = format!("NAT-PMP {} {}", eport, proto_str);
+				let desc = format!("NAT-PMP {eport} {proto_str}");
 				if upnp_redirect(
 					op,
 					rt,

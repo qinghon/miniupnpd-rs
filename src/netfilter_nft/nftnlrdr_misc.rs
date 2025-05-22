@@ -142,7 +142,6 @@ pub(super) enum rule_chain_type {
 	RULE_CHAIN_PEER,
 	RULE_CHAIN_REDIRECT,
 }
-use crate::linux::netfilter;
 use crate::linux::netfilter::MnlSocket;
 use crate::linux::netfilter::mnl::*;
 use crate::netfilter_nft::nftnlrdr_misc::nftnl::nftnl_output_type::NFTNL_OUTPUT_DEFAULT;
@@ -428,7 +427,7 @@ impl nftable {
 			return -1;
 		}
 		let mnl_sock = mnl_sock.unwrap();
-		if mnl_sock.bind(0, netfilter::mnl::MNL_SOCKET_AUTOPID as _) < 0 {
+		if mnl_sock.bind(0, MNL_SOCKET_AUTOPID as _) < 0 {
 			error!("mnl_socket_bind() FAILED: %m");
 			return -1;
 		}
@@ -703,7 +702,7 @@ fn parse_rule_cmp(e: &NftnlExpr, r: &mut rule_t, ctx: &mut parse_ctx) {
 			}
 			RULE_REG_IP_PROTO | RULE_REG_IP6_PROTO => {
 				if data_len == size_of::<u8>() as u32 {
-					r.proto = *(data_val as *const u8);
+					r.proto = *(data_val);
 				}
 			}
 			RULE_REG_TCP_SPORT => {
@@ -763,7 +762,7 @@ fn rule_expr_cb(e: &NftnlExpr, r: &mut rule_t, ctx: &mut parse_ctx) -> i32 {
 
 	MNL_CB_OK as _
 }
-extern "C" fn table_cb(nlh: *const nlmsghdr, data: *mut libc::c_void) -> i32 {
+extern "C" fn table_cb(nlh: *const nlmsghdr, data: *mut c_void) -> i32 {
 	let mut result = MNL_CB_OK as _;
 	let cb_data = unsafe { &mut *(data as *mut table_cb_data) };
 

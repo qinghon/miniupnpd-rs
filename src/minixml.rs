@@ -53,7 +53,7 @@ fn parseatt(p: &mut xmlparser) -> i32 {
 			attvaluelen = 0;
 			while xml.as_bytes()[0] != sep {
 				attvaluelen += 1;
-				if xml.len() < 1 {
+				if xml.is_empty() {
 					return -1;
 				}
 				xml = &xml[1..];
@@ -75,7 +75,7 @@ fn parseatt(p: &mut xmlparser) -> i32 {
 		attname = &attname[..attnamelen];
 		attvalue = &attvalue[..attvaluelen];
 		if let Some(attfunc) = p.attfunc.as_mut() {
-			(attfunc)(p.data, attname, attvalue);
+			attfunc(p.data, attname, attvalue);
 		}
 
 		xml = &xml[1..]

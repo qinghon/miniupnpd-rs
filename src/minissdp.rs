@@ -68,9 +68,9 @@ fn get_link_local_addr(scope_id: u32) -> Ipv6Addr {
 
 pub fn OpenAndConfSSDPReceiveSocket(v: &Options, ipv6: bool) -> io::Result<Socket> {
 	let socket = if ipv6 {
-		socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None)?
+		Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None)?
 	} else {
-		socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)?
+		Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)?
 	};
 	let bind_addr = if ipv6 {
 		SocketAddrV6::new(ipv6_bind_addr, SSDP_PORT, 0, 0).into()
@@ -102,7 +102,7 @@ pub fn OpenAndConfSSDPReceiveSocket(v: &Options, ipv6: bool) -> io::Result<Socke
 				libc::IPPROTO_IP,
 				libc::IP_PKTINFO,
 				&on as *const _ as *const libc::c_void,
-				mem::size_of_val(&on) as libc::socklen_t,
+				size_of_val(&on) as libc::socklen_t,
 			);
 		}
 	}
@@ -115,7 +115,7 @@ pub fn OpenAndConfSSDPReceiveSocket(v: &Options, ipv6: bool) -> io::Result<Socke
 				libc::IPPROTO_IPV6,
 				libc::IPV6_RECVPKTINFO,
 				&on as *const _ as *const libc::c_void,
-				mem::size_of_val(&on) as libc::socklen_t,
+				size_of_val(&on) as libc::socklen_t,
 			);
 		}
 	}
@@ -179,12 +179,12 @@ pub fn OpenAndConfSSDPReceiveSocket(v: &Options, ipv6: bool) -> io::Result<Socke
 	Ok(socket)
 }
 fn OpenAndConfSSDPNotifySocket(lan_addr_s: &lan_addr_s) -> io::Result<Socket> {
-	let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)?;
+	let socket = Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)?;
 
 	socket.set_multicast_loop_v4(false)?;
 	socket.set_multicast_if_v4(&lan_addr_s.addr)?;
 
-	// UDA v1.1 says :
+	// UDA v1.1 say:
 	// 	The TTL for the IP packet SHOULD default to 2 and
 	// 	SHOULD be configurable.
 	if let Err(e) = socket.set_ttl(2) {
@@ -204,8 +204,8 @@ fn OpenAndConfSSDPNotifySocket(lan_addr_s: &lan_addr_s) -> io::Result<Socket> {
 
 	Ok(socket)
 }
-fn OpenAndConfSSDPNotifySocketIPv6(lan_addr: &lan_addr_s) -> io::Result<socket2::Socket> {
-	let socket = socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None)?;
+fn OpenAndConfSSDPNotifySocketIPv6(lan_addr: &lan_addr_s) -> io::Result<Socket> {
+	let socket = Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None)?;
 
 	socket.set_multicast_if_v6(lan_addr.index)?;
 	socket.set_multicast_loop_v6(false)?;
@@ -219,14 +219,14 @@ fn OpenAndConfSSDPNotifySocketIPv6(lan_addr: &lan_addr_s) -> io::Result<socket2:
 		warn!("setsockopt(udp_notify, SO_BROADCAST): {}", e);
 		return Err(e);
 	}
-	#[cfg(all(any(
+	#[cfg(any(
 		target_os = "ios",
 		target_os = "visionos",
 		target_os = "macos",
 		target_os = "tvos",
 		target_os = "watchos",
 		target_os = "linux"
-	)))]
+	))]
 	if !lan_addr.ifname.is_empty() {
 		if let Err(e) = socket.bind_device(Some(lan_addr.ifname.as_bytes())) {
 			warn!(
@@ -241,7 +241,7 @@ fn OpenAndConfSSDPNotifySocketIPv6(lan_addr: &lan_addr_s) -> io::Result<socket2:
 	Ok(socket)
 }
 
-pub fn OpenAndConfSSDPNotifySockets(v: &Options, runtime_flags: u32) -> io::Result<Vec<socket2::Socket>> {
+pub fn OpenAndConfSSDPNotifySockets(v: &Options, runtime_flags: u32) -> io::Result<Vec<Socket>> {
 	let mut socks = Vec::with_capacity(
 		v.listening_ip.len()
 			+ if !GETFLAG!(runtime_flags, IPV6DISABLEDMASK) {
@@ -878,7 +878,7 @@ pub fn SendSSDPGoodbye(send_list: &mut Vec<scheduled_send>, sockets: &[Rc<Socket
 }
 
 pub fn SubmitServicesToMiniSSDPD(v: &Options, host: Ipv4Addr, port: u16) -> io::Result<()> {
-	let mut s = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
+	let mut s = Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
 
 	s.connect(&socket2::SockAddr::unix(
 		v.minissdpdsocket.as_deref().unwrap_or(DEFAULT_MINISSDP_DSOCKET_PATH),
@@ -891,9 +891,9 @@ pub fn SubmitServicesToMiniSSDPD(v: &Options, host: Ipv4Addr, port: u16) -> io::
 		if idx != 0 {
 			buf.extend_from_slice(VERSION_STR_MAP[st.version as usize].as_bytes());
 		}
-		buf.write_fmt(format_args!("uuid:{}::{}{}", st.uuid.get().unwrap(), st.s, st.version)).unwrap();
+		let _ = buf.write_fmt(format_args!("uuid:{}::{}{}", st.uuid.get().unwrap(), st.s, st.version));
 		buf.extend_from_slice(os_version.get().unwrap().as_bytes());
-		buf.write_fmt(format_args!("http://{}:{}{}", host, port, ROOTDESC_PATH)).unwrap();
+		let _ = buf.write_fmt(format_args!("http://{}:{}{}", host, port, ROOTDESC_PATH));
 		if let Err(e) = s.write(&buf) {
 			if e.kind() == io::ErrorKind::Interrupted {
 				continue;

@@ -18,6 +18,7 @@ pub(crate) mod netfilter_conntrack {
 }
 
 use self::netfilter_conntrack::*;
+#[cfg(conntrack = "nfct")]
 pub(crate) mod nfnetlink {
 	#![allow(
 		dead_code,
